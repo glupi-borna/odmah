@@ -13,7 +13,7 @@ function remove_after(node) {
 
 // Removes all child nodes of the given element.
 function remove_children(el) {
-    assert(node instanceof Element, "Not an element");
+    assert(el instanceof Element, "Not an element");
     while (el.firstChild)
         el.firstChild.remove();
 }
@@ -93,7 +93,7 @@ HOW/WHY
                 something that was rendered on the previous frame, but not on
                 this frame.
 
-        hook(element, event)
+        hook(event, element?)
             If we want to synchronously handle events, we have to have some way
             of accessing them synchronously. In immediate mode terms, we want to
             know if something has occured since the last frame was rendered.
@@ -102,7 +102,7 @@ HOW/WHY
             when the event fires, we insert it into a map where we can easily
             look it up later.
 
-            The hook(element, event) function does both these things - sets up
+            The hook(event, element?) function does both these things - sets up
             an event listener (if one does not already exist) and returns the
             value stored in the event map (if one exists).
 
@@ -136,22 +136,66 @@ function cursor_new() {
         parent: document.body,
         // When cursor.node is null, cursor is at the end
         // of the parent element's child list.
-        node: null
+        node: null,
+        last_element: document.body
     };
 }
 
 function cursor_reset(c) {
     c.parent = document.body;
     c.node = c.parent.firstChild;
+    c.last_element = document.body;
 }
 
-function cursor_last(c) {
-    if (c.node == null)
-        return c.parent.lastChild ?? c.parent;
-    return c.node.previousSibling ?? c.parent;
+let _old_style = new Map();
+let _style = new Map();
+
+function style(key, value) {
+    let el = _cursor.last_element;
+    let old = _old_style.get(key);
+    // @TODO: Does this optimization make sense?
+    // It will not work with colors in a lot of cases because, e.g. "#ff0000" is
+    // going to be converted into "rgb(255, 0, 0)", so we will be setting it on
+    // every frame, even if it's not changing.
+    // Maybe we can apply the optimization only for certain props, or skip
+    // applying it for certain props. Either way, perf must be measured for all
+    // cases.
+    if (old != value) {
+        el.style.setProperty(key, value);
+        let val = el.style.getPropertyValue(key);
+        _style.set(key, val);
+        _old_style.set(key, val);
+    } else {
+        _style.set(key, value);
+    }
+}
+
+function fill_old_style(element) {
+    let s = element.style;
+    _old_style.clear();
+    for (let i=s.length-1; i>=0; i--) {
+        let key = s.item(i);
+        _old_style.set(key, s.getPropertyValue(key));
+    }
+}
+
+function _impl_remove_style(_, key) {
+    if (!_style.has(key)) {
+        _cursor.last_element.style.removeProperty(key);
+    }
+}
+
+function style_finalize() {
+    // @TODO: Handle shorthand properties.
+    // Right now, setting "background" actually
+    // results in "background-*" being set, so all
+    // those props are going to be removed.
+    _old_style.forEach(_impl_remove_style);
+    _style.clear();
 }
 
 function cursor_finalize(c) {
+    style_finalize();
     while (c.node) {
         remove_after(c.node);
         c.node = c.parent;
@@ -232,7 +276,7 @@ let hooks = new Map();
 //      happen since the last frame or not). This can easily be extended to
 //      return more information, but I did not care to do that because I have
 //      not needed it yet.
-function hook(el, event) {
+function hook(event, el=_cursor.last_element) {
     let el_hooks = hooks.get(el);
     let hook = null;
 
@@ -265,28 +309,40 @@ function element(tagname) {
     let c = _cursor;
 
     if (c.node == null) {
+        style_finalize();
         let el = document.createElement(tagname);
         c.parent.append(el);
         // c.node is still null, no need to update it
+        c.last_element = el;
+        fill_old_style(el);
         return el;
 
     } else {
 
-        if (c.node instanceof Element) {
+        // if (c.node instanceof Element) {
+        if (c.node.localName) {
+            style_finalize();
             if (tagname != c.node.localName) {
                 let el = document.createElement(tagname);
                 c.node.replaceWith(el);
                 c.node = el.nextSibling;
+                c.last_element = el;
+                _old_style.clear();
                 return el;
             }
             let el = c.node;
             c.node = el.nextSibling;
+            c.last_element = el;
+            fill_old_style(el);
             return el;
 
-        } else if (c.node instanceof Text) {
+        // } else if (c.node instanceof Text) {
+        } else {
             let el = document.createElement(tagname);
             c.node.replaceWith(el);
             c.node = el.nextSibling;
+            c.last_element = el;
+            fill_old_style(el);
             return el;
         }
     }
@@ -303,13 +359,15 @@ function text(txt) {
 
     } else {
 
-        if (c.node instanceof Element) {
+        // if (c.node instanceof Element) {
+        if (c.node.localName) {
             let t = new Text(txt);
             c.node.replaceWith(t);
             c.node = t.nextSibling;
             return t;
 
-        } else if (c.node instanceof Text) {
+        // } else if (c.node instanceof Text) {
+        } else {
             if (c.node.data != txt)
                 c.node.data = txt;
             c.node = c.node.nextSibling;
@@ -320,9 +378,8 @@ function text(txt) {
 
 function step_in() {
     let c = _cursor;
-    let last = cursor_last(c);
-    c.parent = last;
-    c.node = last.firstChild;
+    c.parent = c.last_element;
+    c.node = c.last_element.firstChild;
 }
 
 function step_out() {
@@ -345,6 +402,6 @@ function Button(label) {
     text(label);
     step_out();
 
-    let clicked = hook(button, "click");
+    let clicked = hook("click");
     return clicked;
 }

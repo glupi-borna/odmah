@@ -12,6 +12,9 @@ function wrapped_text(tagname, ...txt) {
 // legally obliged not to write css.
 const p = wrapped_text.bind(null, "div");
 const legend = wrapped_text.bind(null, "legend");
+const h1 = wrapped_text.bind(null, "h1");
+const pre = wrapped_text.bind(null, "pre");
+const summary = wrapped_text.bind(null, "summary");
 
 function stats() {
     let stats = frame_time_stats();
@@ -24,19 +27,27 @@ function stats() {
     step_out();
 }
 
+let hover = false;
 function counter() {
-    p(count+"", count%2==0 ? " is even" : null);
-
     if (Button("+1")) {
         count++;
-        request_rerender();
     }
+    style("background-color", count%2?"red":"blue");
+    style("color", "white");
+    if (hook("mouseover")) hover = true;
+    if (hook("mouseout")) hover = false;
+    if (hover) {
+        style("background-color", "yellow");
+        style("color", "black");
+    }
+    p(count+"", count%2==0 ? " is even" : null);
 }
 
+let hovers = [];
 function button_counter() {
     let div = element("div");
-    div.style.display = "flex";
-    div.style.gap = "1em";
+    style("display", "flex");
+    style("column-gap", "1em");
     step_in();
         if (Button("+1")) {
             count++;
@@ -72,28 +83,45 @@ function button_counter() {
             if (Button("Button " + i)) {
                 alert(`Clicked button ${i}`);
             }
+
+            style("background-color", i%2?"red":"blue");
+            style("color", "white");
+            if (hook("mouseover")) hovers[i] = true;
+            if (hook("mouseout")) hovers[i] = false;
+            if (hovers[i]) {
+                style("background-color", "yellow");
+                style("color", "black");
+            }
+
         step_out();
     }
 }
 
-let _id = 0;
-let data = new Array(1000).fill(null).map(() => {
-    return {
-        id: ++_id,
-        name: word(),
-        code: "#"+digits_str(7),
-        date: new Date(Date.now() + int(0, 1000000))
-    };
-});
-let columns = ["id", "name", "code", "date"];
+let data = null;
+let columns = [];
+
+async function get_data() {
+    let res = await fetch("https://jsonplaceholder.typicode.com/todos");
+    return await res.json();
+}
 
 function editable_table() {
+    if (data == null) {
+        data = [];
+        get_data().then(d => {
+            data = d;
+            columns = Object.keys(data[0]);
+            request_rerender();
+        });
+    }
+
     let input = element("input");
     input.placeholder = "Search...";
-    hook(input, "input");
+    hook("input");
     const search = input.value;
 
     element("table");
+    style("border-collapse", "collapse");
     step_in();
         element("tr");
         step_in();
@@ -107,40 +135,51 @@ function editable_table() {
         step_out();
 
         let to_delete = -1;
+        let idx = 0;
         for (let i=0; i<data.length; i++) {
             let item = data[i];
-            if (!item.name.includes(search)) continue;
+            if (!item.title.includes(search)) continue;
+            idx++;
 
             let tr = element("tr");
+            style("background-color", idx%2?'#ccc':'#eee');
             step_in();
                 for (let key of columns) {
                     element("td")
                     step_in();
                         switch (typeof item[key]) {
-                            case "number": {
-                                if (Button("+1")) {
-                                    item[key]++;
-                                }
-                                if (Button("-1")) {
-                                    item[key]--;
-                                }
-                            } break;
-
                             case "string": {
                                 let input = element("input");
-                                let changed = hook(input, "input");
+                                let changed = hook("input");
                                 if (changed) {
                                     item[key] = input.value;
                                 }
                                 input.value = item[key];
                             } break;
+
+                            case "boolean": {
+                                let input = element("input");
+                                let changed = hook("input");
+                                if (changed) {
+                                    item[key] = input.checked;
+                                }
+                                input.type = "checkbox";
+                                input.checked = item[key];
+                            } break;
+
+                            default: {
+                                text(item[key] + "");
+                            } break;
                         }
-                        text(item[key] + "");
                     step_out();
                 }
 
                 element("td");
                 step_in();
+                    if (Button("log")) {
+                        console.log(item);
+                    }
+
                     if (Button("delete")) {
                         to_delete = i;
                         // NOTE: mark_removed will *always* imply a
@@ -158,6 +197,19 @@ function editable_table() {
         data.splice(to_delete, 1);
     }
 }
+
+function double_hook() {
+    // TODO: Fix this
+    p("Both of the below hooks should return true on click (refer to the code)");
+    // hook1 and hook2 refer to the same element, so they should return the same
+    // value
+    let hook1 = hook("click");
+    let hook2 = hook("click");
+    p(hook1 ? 'true' : 'false');
+    p(hook2 ? 'true' : 'false');
+}
+
+let examples = { counter, button_counter, editable_table, double_hook };
 
 window.onload = function() {
     let unlocked = false;
@@ -178,7 +230,6 @@ window.onload = function() {
         element("div");
         step_in();
             text("Examples:");
-            let examples = { counter, button_counter, editable_table };
             for (let name in examples) {
                 let current = examples[name] == example;
                 if (Button((current ? ">" : "") + name)) {
@@ -188,9 +239,22 @@ window.onload = function() {
             }
         step_out();
 
-        element("h1");
+        h1(example.name);
+
+        element("details");
+        style("background-color", "black");
+        style("color", "white");
+        // TODO: Shorthand properties do not work
+        style("padding-left", ".5em");
+        style("padding-right", ".5em");
+        style("padding-top", ".5em");
+        style("padding-bottom", ".5em");
+        style("overflow-y", "auto");
+        style("max-height", "33vh");
         step_in();
-            text(example.name);
+            summary("Source");
+            pre(example);
+            style("font-size", "1rem");
         step_out();
 
         example();
