@@ -32,12 +32,12 @@ function counter() {
     if (Button("+1")) {
         count++;
     }
-    style("background-color", count%2?"red":"blue");
+    style("background", count%2?"red":"blue");
     style("color", "white");
     if (hook("mouseover")) hover = true;
     if (hook("mouseout")) hover = false;
     if (hover) {
-        style("background-color", "yellow");
+        style("background", "yellow");
         style("color", "black");
     }
     p(count+"", count%2==0 ? " is even" : null);
@@ -216,6 +216,10 @@ window.onload = function() {
     let example = counter;
 
     odmah(function() {
+        if (hook("keydown")) {
+            request_rerender();
+        }
+
         stats();
 
         if (Button(unlocked ? "Dirty flag optimisation" : "Brrrrr")) {
