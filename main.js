@@ -69,6 +69,7 @@ function button_counter() {
         }
 
         if (Button("x10")) count *= 10;
+        if (Button("10 000")) count = 10000;
     step_out();
     p("Count: ", count+"");
 

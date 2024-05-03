@@ -149,189 +149,14 @@ function cursor_reset(c) {
     c.current_frame++;
 }
 
-let _old_style_props = new Set();
-let _style_props = new Set();
-
-let _shorthand_props = {
-    "animation": [
-        "animation-name", "animation-duration", "animation-timing-function",
-        "animation-delay", "animation-iteration-count", "animation-direction",
-        "animation-fill-mode", "animation-play-state", "animation-timeline"
-    ],
-    "background": [
-        "background-attachment", "background-clip", "background-color",
-        "background-image", "background-origin", "background-position",
-        "background-repeat", "background-size"
-    ],
-    "border": [ "border-color", "border-style", "border-width" ],
-    "border-block-end": [
-        "border-block-end-color", "border-block-end-style",
-        "border-block-end-width"
-    ],
-    "border-block-start": [
-        "border-block-start-color", "border-block-start-style",
-        "border-block-start-width"
-    ],
-    "border-bottom": [
-        "border-bottom-color", "border-bottom-style", "border-bottom-width"
-    ],
-    "border-color": [
-        "border-bottom-color", "border-left-color", "border-right-color",
-        "border-top-color"
-    ],
-    "border-image": [
-        "border-image-outset", "border-image-repeat", "border-image-slice",
-        "border-image-source", "border-image-width"
-    ],
-    "border-inline-end": [
-        "border-inline-end-color", "border-inline-end-style",
-        "border-inline-end-width"
-    ],
-    "border-inline-start": [
-        "border-inline-start-color", "border-inline-start-style",
-        "border-inline-start-width"
-    ],
-    "border-left": [
-        "border-left-color", "border-left-style", "border-left-width"
-    ],
-    "border-radius": [
-        "border-top-left-radius", "border-top-right-radius",
-        "border-bottom-right-radius", "border-bottom-left-radius"
-    ],
-    "border-right": [
-        "border-right-color", "border-right-style", "border-right-width"
-    ],
-    "border-style": [
-        "border-bottom-style", "border-left-style", "border-right-style",
-        "border-top-style",
-    ],
-    "border-top": [
-        "border-top-color", "border-top-style", "border-top-width"
-    ],
-    "border-width": [
-        "border-bottom-width", "border-left-width", "border-right-width",
-        "border-top-width",
-    ],
-    "column-rule": [
-        "column-rule-color", "column-rule-style", "column-rule-width"
-    ],
-    "columns": [ "column-count", "column-width" ],
-    "container": [ "container-name", "container-type" ],
-    "contain-intrinsic-size": [
-        "contain-intrinsic-width", "contain-intrinsic-height"
-    ],
-    "flex": [ "flex-grow", "flex-shrink", "flex-basis" ],
-    "flex-flow": [ "flex-direction", "flex-wrapp" ],
-    "font": [
-        "font-family", "font-size", "font-stretch", "font-style",
-        "font-variant", "font-weight", "line-height"
-    ],
-    "font-synthesis": [
-        "font-synthesis-weight", "font-synthesis-style",
-        "font-synthesis-small-caps", "font-synthesis-position"
-    ],
-    "font-variant": [
-        "font-variant-alternates", "font-variant-caps",
-        "font-variant-east-asian", "font-variant-emoji",
-        "font-variant-ligatures", "font-variant-numeric",
-        "font-variant-position"
-    ],
-    "gap": [ "column-gap", "row-gap" ],
-    "grid": [
-        "grid-auto-columns", "grid-auto-flow", "grid-auto-rows",
-        "grid-template-areas", "grid-template-columns", "grid-template-rows"
-    ],
-    "grid-area": [
-        "grid-row-start", "grid-column-start", "grid-row-end", "grid-column-end"
-    ],
-    "grid-column": [ "grid-column-end", "grid-column-start" ],
-    "grid-row": [ "grid-row-end", "grid-row-start" ],
-    "grid-template": [
-        "grid-template-areas", "grid-template-columns", "grid-template-rows"
-    ],
-    "inset": [ "top", "right", "bottom", "left" ],
-    "list-style": [
-        "list-style-image", "list-style-position", "list-style-type"
-    ],
-    "margin": [ "margin-top", "margin-right", "margin-bottom", "margin-left" ],
-    "mask": [
-        "mask-clip", "mask-composite", "mask-image", "mask-mode", "mask-origin",
-        "mask-position", "mask-repeat", "mask-size"
-    ],
-    "mask-border": [
-        "mask-border-mode", "mask-border-outset", "mask-border-repeat",
-        "mask-border-slice", "mask-border-source", "mask-border-width"
-    ],
-    "offset": [
-        "offset-anchor", "offset-distance", "offset-path", "offset-position",
-        "offset-rotate",
-    ],
-    "outline": [ "outline-color", "outline-style", "outline-width" ],
-    "overflow": [ "overflow-x", "overflow-y" ],
-    "padding": [
-        "padding-top", "padding-right", "padding-bottom", "padding-left"
-    ],
-    "place-content": [ "align-content", "justify-content" ],
-    "place-items": [ "align-items", "justify-items" ],
-    "place-self": ["align-self", "justify-self"],
-    "scroll-margin": [
-        "scroll-margin-bottom", "scroll-margin-left", "scroll-margin-right",
-        "scroll-margin-top"
-    ],
-    "scroll-padding": [
-        "scroll-padding-bottom", "scroll-padding-left", "scroll-padding-right",
-        "scroll-padding-top"
-    ],
-    "scroll-timeline": [ "scroll-timeline-name", "scroll-timeline-axis" ],
-    "text-decoration": [
-        "text-decoration-color", "text-decoration-line",
-        "text-decoration-style", "text-decoration-thickness"
-    ],
-    "text-emphasis": [ "text-emphasis-color", "text-emphasis-style" ],
-    "text-wrap": [ "text-wrap-mode", "text-wrap-style" ],
-    "transition": [
-        "transition-behavior", "transition-delay", "transition-duration",
-        "transition-property", "transition-timing-function"
-    ]
-};
-
+let _style_str = "";
 function style(prop, value) {
-    let el = _cursor.last_element;
-    el.style.setProperty(prop, value);
-    if (prop in _shorthand_props) {
-        let subprops = _shorthand_props[prop];
-        for (let subprop of subprops) {
-            _style_props.add(subprop);
-            _old_style_props.add(subprop);
-        }
-    } else {
-        _style_props.add(prop);
-        _old_style_props.add(prop);
-    }
-}
-
-function _fill_old_style(el) {
-    let s = el.style;
-    _old_style_props.clear();
-    for (let i=s.length-1; i>=0; i--) {
-        let key = s.item(i);
-        _old_style_props.add(key);
-    }
-}
-
-function _maybe_remove_style_prop(_, prop) {
-    if (!_style_props.has(prop)) {
-        _cursor.last_element.style.removeProperty(prop);
-    }
+    _style_str += prop+":"+value+";";
 }
 
 function style_finalize() {
-    // @TODO: Handle shorthand properties.
-    // Right now, setting "background" actually
-    // results in "background-*" being set, so all
-    // those props are going to be removed.
-    _old_style_props.forEach(_maybe_remove_style_prop);
-    _style_props.clear();
+    _cursor.last_element.setAttribute("style", _style_str);
+    _style_str = "";
 }
 
 function cursor_finalize(c) {
@@ -452,7 +277,6 @@ function element(tagname) {
         c.parent.append(el);
         // c.node is still null, no need to update it
         c.last_element = el;
-        _fill_old_style(el);
         return el;
 
     } else {
@@ -465,13 +289,11 @@ function element(tagname) {
                 c.node.replaceWith(el);
                 c.node = el.nextSibling;
                 c.last_element = el;
-                _old_style_props.clear();
                 return el;
             }
             let el = c.node;
             c.node = el.nextSibling;
             c.last_element = el;
-            _fill_old_style(el);
             return el;
 
         // } else if (c.node instanceof Text) {
@@ -480,7 +302,6 @@ function element(tagname) {
             c.node.replaceWith(el);
             c.node = el.nextSibling;
             c.last_element = el;
-            _fill_old_style(el);
             return el;
         }
     }
