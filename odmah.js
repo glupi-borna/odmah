@@ -137,7 +137,8 @@ function cursor_new() {
         // When cursor.node is null, cursor is at the end
         // of the parent element's child list.
         node: null,
-        last_element: document.body
+        last_element: document.body,
+        current_frame: 0
     };
 }
 
@@ -145,6 +146,7 @@ function cursor_reset(c) {
     c.parent = document.body;
     c.node = c.parent.firstChild;
     c.last_element = document.body;
+    c.current_frame++;
 }
 
 let _old_style_props = new Set();
@@ -430,17 +432,15 @@ function hook(event, el=_cursor.last_element) {
     }
 
     if (!hook) {
-        hook = {event, happened: false};
+        hook = {event, happened_on_frame: -1};
         el_hooks.push(hook);
         el.addEventListener(event, () => {
             request_rerender();
-            hook.happened = true;
+            hook.happened_on_frame = _cursor.current_frame;
         });
     }
 
-    let happened = hook.happened;
-    hook.happened = false;
-    return happened;
+    return _cursor.current_frame-1 == hook.happened_on_frame;
 }
 
 function element(tagname) {

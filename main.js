@@ -199,7 +199,7 @@ function editable_table() {
 }
 
 function double_hook() {
-    // TODO: Fix this
+    // This used to not work, but now it does.
     p("Both of the below hooks should return true on click (refer to the code)");
     // hook1 and hook2 refer to the same element, so they should return the same
     // value
