@@ -78,6 +78,11 @@ function button_counter() {
         text("The buttons:");
     step_out();
 
+    element("div");
+    step_in();
+    style("display", "flex");
+    style("max-width", "90vw");
+    style("flex-flow", "row wrap");
     for (let i=0; i<count; i++) {
         element("div");
         step_in();
@@ -96,6 +101,7 @@ function button_counter() {
 
         step_out();
     }
+    step_out();
 }
 
 let data = null;
@@ -201,20 +207,82 @@ function editable_table() {
 
 function double_hook() {
     // This used to not work, but now it does.
-    p("Both of the below hooks should return true on click (refer to the code)");
-    // hook1 and hook2 refer to the same element, so they should return the same
-    // value
+    element("button");
+    step_in();
+        text("Both of the below hooks should return true on click (refer to the code)");
+    step_out();
+    // hook1 and hook2 are attached to the same button, so they should return
+    // the same value
     let hook1 = hook("click");
     let hook2 = hook("click");
     p(hook1 ? 'true' : 'false');
     p(hook2 ? 'true' : 'false');
 }
 
-let examples = { counter, button_counter, editable_table, double_hook };
+function checkbox(checked) {
+    let input = element("input");
+    input.type = "checkbox";
+    if (hook("input")) {
+        checked = input.checked;
+    }
+    input.checked = checked;
+    return checked;
+}
+
+function textbox(value, disabled=false) {
+    let input = element("input");
+    input.disabled = disabled;
+    if (hook("input")) {
+        value = input.value;
+    }
+    input.value = value;
+    return value;
+}
+
+let user = {
+    first_name: "",
+    last_name: "",
+    is_disabled: false
+};
+
+function inputs() {
+    element("div");
+    step_in();
+        style("display", "flex");
+        style("flex-direction", "column");
+        style("align-items", "start");
+        style("gap", ".25em");
+        user.is_disabled = checkbox(user.is_disabled);
+        user.first_name = textbox(user.first_name, user.is_disabled);
+        user.last_name = textbox(user.last_name, user.is_disabled);
+    step_out();
+
+    p("First name ", user.first_name);
+    p("Last name ", user.last_name);
+    p(JSON.stringify(user));
+}
+
+let ok = true;
+function conditional_step_in_out() {
+    if (Button("x")) {
+        ok = !ok;
+    }
+
+    p("Value: ", ok ? 'true' : 'false');
+
+    element("div");
+    if (ok) {
+        step_in();
+        text("This text should disappear when 'false'")
+        step_out();
+    }
+}
+
+let examples = { counter, button_counter, editable_table, double_hook, inputs, conditional_step_in_out };
 
 window.onload = function() {
     let unlocked = false;
-    let example = counter;
+    let example = conditional_step_in_out;
 
     odmah(function() {
         if (hook("keydown")) {
@@ -232,28 +300,28 @@ window.onload = function() {
             request_rerender();
         }
 
-        element("div");
+        let example_changed = false;
+        let s = element("select");
+        if (hook("change")) {
+            example = examples[s.value];
+            example_changed = true;
+        }
         step_in();
-            text("Examples:");
             for (let name in examples) {
-                let current = examples[name] == example;
-                if (Button((current ? ">" : "") + name)) {
-                    example = examples[name];
-                    request_rerender();
-                }
+                element("option");
+                step_in();
+                    text(name);
+                step_out();
             }
         step_out();
+        s.value = example.name;
 
         h1(example.name);
 
         element("details");
         style("background-color", "black");
         style("color", "white");
-        // TODO: Shorthand properties do not work
-        style("padding-left", ".5em");
-        style("padding-right", ".5em");
-        style("padding-top", ".5em");
-        style("padding-bottom", ".5em");
+        style("padding", ".5em");
         style("overflow-y", "auto");
         style("max-height", "33vh");
         step_in();
@@ -262,6 +330,14 @@ window.onload = function() {
             style("font-size", "1rem");
         step_out();
 
-        example();
+        let x = element("div");
+        step_in();
+            example();
+        step_out();
+
+        if (example_changed) {
+            mark_removed(x);
+            request_rerender();
+        }
     });
 }

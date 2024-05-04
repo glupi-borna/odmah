@@ -246,7 +246,8 @@ function hook(event, el=_cursor.last_element) {
     let hook = null;
 
     if (el_hooks) {
-        for (let h of el_hooks) {
+        for (let i=0; i<el_hooks.length; i++) {
+            let h = el_hooks[i];
             if (h.event != event) continue;
             hook = h;
             break;
@@ -259,7 +260,7 @@ function hook(event, el=_cursor.last_element) {
     if (!hook) {
         hook = {event, happened_on_frame: -1};
         el_hooks.push(hook);
-        el.addEventListener(event, () => {
+        el.addEventListener(event, function () {
             request_rerender();
             hook.happened_on_frame = _cursor.current_frame;
         });
