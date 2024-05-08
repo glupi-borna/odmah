@@ -149,18 +149,42 @@ function cursor_reset(c) {
     c.current_frame++;
 }
 
-let _style_str = "";
-function style(prop, value) {
-    _style_str += prop+":"+value+";";
+let _attrs = new Map();
+function attrs_init(el) {
+    let attrs = el.attributes;
+    let l = attrs.length;
+    for (let i=0; i<l; i++) {
+        _attrs.set(attrs.item(i).name, "");
+    }
 }
 
-function style_finalize() {
-    _cursor.last_element.setAttribute("style", _style_str);
-    _style_str = "";
+function attr(name, value) {
+    _attrs.set(name, value);
+}
+
+function cls(name) {
+    let old = _attrs.get("class") ?? "";
+    _attrs.set("class", old + " " + name)
+}
+
+function style(key, val) {
+    let old = _attrs.get("style") ?? "";
+    _attrs.set("style", old + key + ":" + val + ";");
+}
+
+function _set_attr_from_map(val, attr_name) {
+    let old_val = _cursor.last_element.getAttribute(attr_name);
+    if (old_val != val)
+        _cursor.last_element.setAttribute(attr_name, val);
+}
+
+function _attrs_finalize() {
+    _attrs.forEach(_set_attr_from_map);
+    _attrs.clear();
 }
 
 function cursor_finalize(c) {
-    style_finalize();
+    _attrs_finalize();
     while (c.node) {
         remove_after(c.node);
         c.node = c.parent;
@@ -224,8 +248,8 @@ function odmah(frame_cb) {
         }
         cursor_finalize(_cursor);
 
-        for (let el of marked_for_remove) {
-            el.remove();
+        for (let i=0; i<marked_for_remove.length; i++) {
+            marked_for_remove[i].remove();
         }
         marked_for_remove.length = 0;
 
@@ -273,7 +297,7 @@ function element(tagname) {
     let c = _cursor;
 
     if (c.node == null) {
-        style_finalize();
+        _attrs_finalize();
         let el = document.createElement(tagname);
         c.parent.append(el);
         // c.node is still null, no need to update it
@@ -284,7 +308,7 @@ function element(tagname) {
 
         // if (c.node instanceof Element) {
         if (c.node.localName) {
-            style_finalize();
+            _attrs_finalize();
             if (tagname != c.node.localName) {
                 let el = document.createElement(tagname);
                 c.node.replaceWith(el);

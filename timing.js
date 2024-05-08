@@ -17,7 +17,8 @@ function frame_time_stats() {
     let total = 0;
     let min = Infinity;
     let max = 0;
-    for (let t of frame_times.buf) {
+    for (let i=0; i<frame_times.buf.length; i++) {
+        let t = frame_times.buf[i];
         total += t;
         min = Math.min(min, t);
         max = Math.max(max, t);

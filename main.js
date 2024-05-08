@@ -3,8 +3,10 @@ let count = 0;
 function wrapped_text(tagname, ...txt) {
     element(tagname);
     step_in();
-    for (let t of txt)
+    for (let i=0; i<txt.length; i++) {
+        let t = txt[i];
         if (t) text(t);
+    }
     step_out();
 }
 
@@ -43,7 +45,7 @@ function counter() {
     p(count+"", count%2==0 ? " is even" : null);
 }
 
-let hovers = [];
+let hovers = new Array(10000).fill(false);
 function button_counter() {
     let div = element("div");
     style("display", "flex");
