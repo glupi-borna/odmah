@@ -1,9 +1,13 @@
+"use strict"
+
 const vowels = "aeiouy";
 const consonants = "bcdfghjklmnpqrstvwxz";
 const letters = vowels+consonants;
 const digits = "0123456789";
 
-function int(min, max) {
+function int(a=Number.MAX_SAFE_INTEGER, b=0) {
+    let max = Math.max(a, b);
+    let min = Math.min(a, b);
     let r = max-min;
     let i = Math.round(Math.random()*r);
     return min+i;

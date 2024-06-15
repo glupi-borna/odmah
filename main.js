@@ -1,3 +1,5 @@
+"use strict"
+
 let count = 0;
 
 function wrapped_text(tagname, ...txt) {
@@ -13,16 +15,15 @@ function wrapped_text(tagname, ...txt) {
 // p is a div because p elements have margins which need to be disabled and I am
 // legally obliged not to write css.
 const p = wrapped_text.bind(null, "div");
-const legend = wrapped_text.bind(null, "legend");
 const h1 = wrapped_text.bind(null, "h1");
 const pre = wrapped_text.bind(null, "pre");
 const summary = wrapped_text.bind(null, "summary");
 
 function stats() {
     let stats = frame_time_stats();
-    element("fieldset");
+    element("details");
     step_in();
-        legend("Frame time stats (for last 1000 frames)");
+        summary("Frame time stats (for last 1000 frames)");
         for (let key in stats) {
             p(key, ": ", stats[key]+"", "ms");
         }
@@ -34,8 +35,10 @@ function counter() {
     if (Button("+1")) {
         count++;
     }
-    style("background", count%2?"red":"blue");
-    style("color", "white");
+    if (count%2) {
+        style("background", count%2?"red":"blue");
+        style("color", "white");
+    }
     if (hook("mouseover")) hover = true;
     if (hook("mouseout")) hover = false;
     if (hover) {
@@ -86,22 +89,22 @@ function button_counter() {
     style("max-width", "90vw");
     style("flex-flow", "row wrap");
     for (let i=0; i<count; i++) {
-        element("div");
-        step_in();
-            if (Button("Button " + i)) {
-                alert(`Clicked button ${i}`);
-            }
-
-            style("background-color", i%2?"red":"blue");
-            style("color", "white");
-            if (hook("mouseover")) hovers[i] = true;
-            if (hook("mouseout")) hovers[i] = false;
-            if (hovers[i]) {
-                style("background-color", "yellow");
-                style("color", "black");
-            }
-
-        step_out();
+        if (Button("Button " + i)) {
+            alert(`Clicked button ${i}`);
+        }
+        attr("data-idx", i);
+        if (i%5==0) {
+            attr("disabled");
+            attr("title", "This button is divisible by 5");
+        }
+        style("background-color", i%2?"red":"blue");
+        style("color", "white");
+        if (hook("mouseover")) hovers[i] = true;
+        if (hook("mouseout")) hovers[i] = false;
+        if (hovers[i]) {
+            style("background-color", "yellow");
+            style("color", "black");
+        }
     }
     step_out();
 }
@@ -280,11 +283,261 @@ function conditional_step_in_out() {
     }
 }
 
-let examples = { counter, button_counter, editable_table, double_hook, inputs, conditional_step_in_out };
+/**
+    @this {Modifier}
+    @arg node
+*/
+function ui_sine(node) {
+    let canvas = element("canvas", node.id);
+    attr("width", this.width ?? 300);
+    attr("height", this.height ?? 212);
+    canvas.width = this.width ?? 300;
+    canvas.height = this.height ?? 212;
+
+    if (!this.ctx) {
+        this.ctx = canvas.getContext("2d", {
+            alpha: false,
+            willReadFrequently: false
+        });
+        this.image = this.ctx.getImageData(0, 0, canvas.width, canvas.height);
+        this.image_buf = new Uint32Array(this.image.data.buffer);
+        request_rerender();
+    }
+
+    let ctx = this.ctx;
+    ctx.fillStyle = "red";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = "white";
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height/2);
+    let d = this.single_period ? Math.PI*2/this.frequency : this.duration;
+    for (let i=0; i<=canvas.width; i++) {
+        let t = (i/canvas.width)*d;
+        let y = (this.get_y(t) + 1) *0.5*canvas.height;
+        ctx.lineTo(i, y);
+    }
+    ctx.stroke();
+
+    step_in();
+    step_out();
+
+    // this.frequency = textbox(this.frequency);
+    // attr("type", "number");
+    // this.frequency = textbox(this.frequency);
+    // attr("type", "range");
+    // attr("min", -100);
+    // attr("max", 100);
+    // attr("step", 0.1);
+}
+
+function sine_modifier_get_y(t) {
+    return Math.sin(t*this.frequency)*this.amplitude;
+}
+
+function range_control(property, min, max, step=0.1) {
+    return function range_control_ui() {
+        let old = this[property];
+
+        element("label");
+        step_in();
+            text(property);
+            this[property] = textbox(this[property]);
+            attr("type", "number");
+            attr("min", min);
+            attr("max", max);
+            attr("step", step);
+        step_out();
+        if (old != this[property]) request_rerender();
+    }
+}
+
+function checkbox_control(property) {
+    return function checkbox_control_ui() {
+        let old = this[property];
+
+        element("label");
+        step_in();
+            text(property);
+            this[property] = checkbox(this[property]);
+        step_out();
+
+        if (old != this[property]) request_rerender();
+    }
+}
+
+function sine_modifier() {
+    return {
+        ui: ui_sine,
+        get_y: sine_modifier_get_y,
+        duration: 1,
+        frequency: 6.14,
+        amplitude: 1,
+        single_period: false,
+        ctx: null, // canvas context
+        image: null, // context image data
+        image_buf: null, // image data buffer
+        inputs: 0,
+        output: true,
+        controls: [
+            range_control("frequency", 0, Infinity, 0.01),
+            range_control("amplitude", -Infinity, Infinity, 0.01),
+            range_control("duration", 0.001, 10),
+            checkbox_control("single_period"),
+        ]
+    };
+}
+
+function sm_node(id, modifier) {
+    return {
+        id,
+        modifier,
+        x: 0, y: 0,
+        dragging: false,
+    };
+}
+
+function ui_sm_node(node) {
+    element("div", "sm_node::" + node.id);
+    style("position", "absolute");
+    style("left", `50%`);
+    style("top", `50%`);
+    style("transform", `translate(${node.x}px, ${node.y}px)`);
+    step_in();
+
+        element("div", "sm_node_titlebar::" + node.id);
+        style("background", "#333");
+        style("color", "white");
+        step_in();
+            text(" -");
+            if (hook("mousedown")) node.dragging = true;
+            if (!mouse.left.get()) node.dragging = false;
+            if (node.dragging) {
+                node.x += mouse.delta_x.get();
+                node.y += mouse.delta_y.get();
+            }
+        step_out();
+
+        element("div", "sm_node_ui::" + node.id);
+        style("display", "flex");
+        style("flex-flow", "column");
+        step_in();
+            node.modifier.ui(node);
+            for (let control of node.modifier.controls) {
+                control.call(node.modifier);
+            }
+        step_out();
+
+        element("div", "sm_node_io::" + node.id);
+        style("display", "flex");
+        style("flex-flow", "column");
+        step_in();
+
+            if (node.modifier.output) {
+                element("div", "sm_node_out::" + node.id);
+                styles(`
+                    display: flex;
+                    flex-flow: column;
+                    align-items: flex-end;
+                `);
+                style("display", "flex");
+                style("flex-flow", "column");
+                step_in();
+                    element("div"); step_in();
+                    styles(`
+                        border-radius: 100%;
+                        width: 16px;
+                        height: 16px;
+                        background: red;
+                    `);
+                    step_out();
+                step_out();
+            }
+
+            for (let i=0; i<node.modifier.inputs; i++) {
+                element("div", "sm_node_in::" + node.id + "::" + i);
+                style("display", "flex");
+                style("flex-flow", "row");
+                step_in();
+                    element("div"); step_in();
+                    styles(`
+                        border-radius: 100%;
+                        width: 16px;
+                        height: 16px;
+                        background: red;
+                    `);
+                    step_out();
+                step_out();
+            }
+
+        step_out();
+
+
+    step_out();
+
+}
+
+let nodes = [
+    sm_node("node1", sine_modifier()),
+    sm_node("node2", sine_modifier())
+]
+
+function soundmaker() {
+    element("div", "sm_workspace");
+    style("position", "relative");
+    step_in();
+        for (let node of nodes) {
+            ui_sm_node(node);
+        }
+    step_out();
+}
+
+let examples = {
+    counter,
+    button_counter,
+    editable_table,
+    double_hook,
+    inputs,
+    conditional_step_in_out,
+    soundmaker
+};
+
+function select(value, options) {
+    let current = null;
+    let s = element("select");
+    if (hook("change")) value = options[s.value];
+    step_in();
+    for (let key in options) {
+        element("option");
+        step_in();
+            if (options[key] == value) current = key;
+            text(key);
+        step_out();
+    }
+    step_out();
+    s.value = current;
+    return value;
+}
+
+function row_start() {
+    element("div");
+    style("display", "flex");
+    style("flex-flow", "row");
+    step_in();
+}
+
+function col_start() {
+    element("div");
+    style("display", "flex");
+    style("flex-flow", "column");
+    step_in();
+}
+
+const end = step_out;
 
 window.onload = function() {
     let unlocked = false;
-    let example = conditional_step_in_out;
+    let example = soundmaker;
 
     odmah(function() {
         if (hook("keydown")) {
@@ -293,32 +546,19 @@ window.onload = function() {
 
         stats();
 
-        if (Button(unlocked ? "Dirty flag optimisation" : "Brrrrr")) {
-            unlocked = !unlocked;
-            request_rerender();
-        }
+        col_start(); {
+            style("align-items", "start");
+            element("label");
+            step_in();
+                unlocked = checkbox(unlocked);
+                text("Brrrr");
+            step_out();
 
-        if (unlocked) {
-            request_rerender();
-        }
+            if (unlocked) request_rerender();
 
-        let example_changed = false;
-        let s = element("select");
-        if (hook("change")) {
-            example = examples[s.value];
-            example_changed = true;
-        }
-        step_in();
-            for (let name in examples) {
-                element("option");
-                step_in();
-                    text(name);
-                step_out();
-            }
-        step_out();
-        s.value = example.name;
-
-        h1(example.name);
+            example = select(example, examples);
+            h1(example.name);
+        }; end();
 
         element("details");
         style("background-color", "black");
@@ -332,14 +572,9 @@ window.onload = function() {
             style("font-size", "1rem");
         step_out();
 
-        let x = element("div");
+        let x = element("div", example.name);
         step_in();
             example();
         step_out();
-
-        if (example_changed) {
-            mark_removed(x);
-            request_rerender();
-        }
     });
 }

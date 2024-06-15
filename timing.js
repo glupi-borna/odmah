@@ -1,3 +1,5 @@
+"use strict"
+
 const frame_times = {
     buf: new Float64Array(1000),
     len: 0,

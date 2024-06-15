@@ -1,17 +1,29 @@
+"use strict"
+
+/**
+    @arg {string} msg
+    @return {asserts cond is true}
+*/
 function assert(cond, msg) {
     if (!cond) {
         throw new Error(`Assertion failed: ${msg}`);
     }
 }
 
-// Removes all sibling nodes after the given node.
+/**
+    @arg {Node} node
+    @desc Removes all sibling nodes that come after the given node.
+*/
 function remove_after(node) {
     assert(node instanceof Node, "Not a node");
     while (node.nextSibling)
         node.nextSibling.remove();
 }
 
-// Removes all child nodes of the given element.
+/**
+    @arg {Element} el
+    @desc Removes all child nodes of the given element.
+*/
 function remove_children(el) {
     assert(el instanceof Element, "Not an element");
     while (el.firstChild)
@@ -130,6 +142,16 @@ function request_rerender() {
     _needs_update = true;
 }
 
+/**
+I am kicking around the idea of "subcursors". You could imagine spawning a
+cursor elsewhere in the page (probably where you've already passed
+with the main cursor) and opting to render there. This is the only reason that
+_cursor is not a singleton -- although, I have not been super careful about this
+and subsequently have written most of the code in the framework to treat _cursor
+as a singleton.
+
+Oh well.
+*/
 let _cursor = cursor_new();
 function cursor_new() {
     return {
@@ -138,7 +160,8 @@ function cursor_new() {
         // of the parent element's child list.
         node: null,
         last_element: document.body,
-        current_frame: 0
+        current_frame: 0,
+        stepped_in: true
     };
 }
 
@@ -146,41 +169,69 @@ function cursor_reset(c) {
     c.parent = document.body;
     c.node = c.parent.firstChild;
     c.last_element = document.body;
+    c.stepped_in = true;
     c.current_frame++;
 }
 
-let _attrs = new Map();
-function attrs_init(el) {
-    let attrs = el.attributes;
-    let l = attrs.length;
-    for (let i=0; i<l; i++) {
-        _attrs.set(attrs.item(i).name, "");
-    }
-}
+let _attrs = {};
+let _style_str = "";
+let _class_str = "";
 
-function attr(name, value) {
-    _attrs.set(name, value);
+function attr(name, value="") {
+    _attrs[name] = value;
 }
 
 function cls(name) {
-    let old = _attrs.get("class") ?? "";
-    _attrs.set("class", old + " " + name)
+    _class_str += name + " ";
 }
 
 function style(key, val) {
-    let old = _attrs.get("style") ?? "";
-    _attrs.set("style", old + key + ":" + val + ";");
+    _style_str += key + ":" + val + ";";
 }
 
-function _set_attr_from_map(val, attr_name) {
-    let old_val = _cursor.last_element.getAttribute(attr_name);
-    if (old_val != val)
-        _cursor.last_element.setAttribute(attr_name, val);
+function styles(css) {
+    _style_str += css;
+}
+
+function get_attributes(el) {
+    if (el._attrs == undefined) el._attrs = {};
+    return el._attrs;
 }
 
 function _attrs_finalize() {
-    _attrs.forEach(_set_attr_from_map);
-    _attrs.clear();
+    let el = _cursor.last_element;
+
+    if (_style_str) {
+        _attrs.style = _style_str;
+        _style_str = "";
+    }
+
+    if (_class_str) {
+        _attrs["class"] = _class_str;
+        _class_str = "";
+    }
+
+    let attrs = get_attributes(el);
+
+    for (let key in attrs) {
+        let attr = attrs[key];
+
+        let val = _attrs[key];
+        if (val === undefined) {
+            el.removeAttribute(key);
+            delete attrs[key];
+        } else if (val != attr) {
+            el.setAttribute(key, val);
+            attrs[key] = val;
+        }
+        delete _attrs[key];
+    }
+
+    for (let key in _attrs) {
+        el.setAttribute(key, _attrs[key]);
+        attrs[key] = _attrs[key];
+        delete _attrs[key];
+    }
 }
 
 function cursor_finalize(c) {
@@ -230,11 +281,82 @@ function mark_removed(el) {
     marked_for_remove.push(el);
 }
 
+class Frame_Value {
+    constructor(default_value) {
+        this.value = default_value;
+        this.changed_this_frame = false;
+    }
+
+    get() {
+        this.requested_this_frame = true;
+        return this.value;
+    }
+
+    set_value(new_value) {
+        if (this.value != new_value) {
+            this.value = new_value;
+            this.changed_this_frame = true;
+        }
+    }
+
+    needs_rerender() {
+        if (typeof(this.value) == "boolean") {
+            return this.changed_this_frame && this.requested_this_frame;
+        }
+        return this.requested_this_frame;
+    }
+}
+
+const mouse = {
+    x: new Frame_Value(0),
+    y: new Frame_Value(0),
+    buttons: new Frame_Value(0),
+    left: new Frame_Value(false),
+    right: new Frame_Value(false),
+    middle: new Frame_Value(false),
+    delta_x: new Frame_Value(0),
+    delta_y: new Frame_Value(0),
+};
+
+function _update_mouse(e) {
+    mouse.x.set_value(e.clientX);
+    mouse.y.set_value(e.clientY);
+
+    mouse.delta_x.set_value(mouse.delta_x.value + e.movementX);
+    mouse.delta_y.set_value(mouse.delta_y.value + e.movementY);
+
+    mouse.buttons.set_value(e.buttons);
+    mouse.left.set_value(!!(e.buttons & 1));
+    mouse.right.set_value(!!(e.buttons & 2));
+    mouse.middle.set_value(!!(e.buttons & 4));
+}
+
 function odmah(frame_cb) {
+    document.addEventListener("mousemove", _update_mouse, true);
+    document.addEventListener("mousedown", _update_mouse, true);
+    document.addEventListener("mouseup", _update_mouse, true);
+
     function _do_frame() {
         if (!_needs_update) {
-            requestAnimationFrame(_do_frame);
-            return;
+            mouse.delta_x.set_value(0);
+            mouse.delta_y.set_value(0);
+
+            let mouse_rerender = false;
+            for (let key in mouse) {
+                let fv = mouse[key];
+                if (fv.needs_rerender()) mouse_rerender = true;
+            }
+
+            if (!mouse_rerender) {
+                requestAnimationFrame(_do_frame);
+                return;
+            }
+        }
+
+        for (let key in mouse) {
+            let fv = mouse[key];
+            fv.requested_this_frame = false;
+            fv.changed_this_frame = false;
         }
 
         let start = performance.now();
@@ -254,18 +376,27 @@ function odmah(frame_cb) {
         marked_for_remove.length = 0;
 
         record_frame_time(performance.now() - start);
+        mouse.delta_x.set_value(0);
+        mouse.delta_y.set_value(0);
+
+        for (let key in mouse) {
+            let fv = mouse[key];
+            if (fv.needs_rerender()) request_rerender();
+        }
+
         requestAnimationFrame(_do_frame);
     }
 
     _do_frame();
 }
 
+function _hook_default() { return true; }
 let hooks = new Map();
 // NOTE: The hook function only returns a boolean right now (did the event
 //      happen since the last frame or not). This can easily be extended to
 //      return more information, but I did not care to do that because I have
 //      not needed it yet.
-function hook(event, el=_cursor.last_element) {
+function hook(event, value_getter=_hook_default, el=_cursor.last_element) {
     let el_hooks = hooks.get(el);
     let hook = null;
 
@@ -282,35 +413,78 @@ function hook(event, el=_cursor.last_element) {
     }
 
     if (!hook) {
-        hook = {event, happened_on_frame: -1};
+        hook = {
+            event,
+            happened_on_frame: -1,
+            value: undefined
+        };
         el_hooks.push(hook);
-        el.addEventListener(event, function () {
+        el.addEventListener(event, function (e) {
             request_rerender();
+            hook.value = value_getter(e);
             hook.happened_on_frame = _cursor.current_frame;
         });
     }
 
-    return _cursor.current_frame-1 == hook.happened_on_frame;
+    if (_cursor.current_frame-1 == hook.happened_on_frame) {
+        return hook.value;
+    }
+    return undefined;
 }
 
-function element(tagname) {
+const _element_map = new Map();
+
+/**
+    @template {string} T
+    @arg {T} tagname
+    @arg {string} id
+    @returns {HTMLElementTagNameMap[T]}
+*/
+function get_element(tagname, id) {
+    let el = _element_map.get(id);
+    if (!el) {
+        el = document.createElement(tagname);
+        _element_map.set(id, el);
+    }
+    return el;
+}
+
+/**
+    @template {string} T
+    @arg {T} tagname
+    @arg {string|null} id
+    @returns {HTMLElementTagNameMap[T]}
+*/
+function element(tagname, id=null) {
     let c = _cursor;
 
     if (c.node == null) {
         _attrs_finalize();
-        let el = document.createElement(tagname);
+        let el = id==null ? document.createElement(tagname) : get_element(tagname, id);
         c.parent.append(el);
         // c.node is still null, no need to update it
         c.last_element = el;
+        if (id) _element_map.set(id, el);
         return el;
 
     } else {
 
+        if (id) {
+            _attrs_finalize();
+            let el = get_element(tagname, id);
+            if (c.node != el) {
+                c.node.replaceWith(el);
+            }
+            c.node = el.nextSibling;
+            c.last_element = el;
+            return el;
+        }
+
         // if (c.node instanceof Element) {
-        if (c.node.localName) {
+        if (c.node.nodeType == 1) {
             _attrs_finalize();
             if (tagname != c.node.localName) {
-                let el = document.createElement(tagname);
+                let el = document.createElement(tagname, id);
                 c.node.replaceWith(el);
                 c.node = el.nextSibling;
                 c.last_element = el;
@@ -323,7 +497,7 @@ function element(tagname) {
 
         // } else if (c.node instanceof Text) {
         } else {
-            let el = document.createElement(tagname);
+            let el = document.createElement(tagname, id);
             c.node.replaceWith(el);
             c.node = el.nextSibling;
             c.last_element = el;
@@ -344,7 +518,7 @@ function text(txt) {
     } else {
 
         // if (c.node instanceof Element) {
-        if (c.node.localName) {
+        if (c.node.nodeType == 1) {
             let t = new Text(txt);
             c.node.replaceWith(t);
             c.node = t.nextSibling;
@@ -358,6 +532,11 @@ function text(txt) {
             return c.node;
         }
     }
+}
+
+function container(tagname, id=null) {
+    element(tagname, id);
+    step_in();
 }
 
 function step_in() {
@@ -386,6 +565,6 @@ function Button(label) {
     text(label);
     step_out();
 
-    let clicked = hook("click");
+    let clicked = hook("mousedown");
     return clicked;
 }
