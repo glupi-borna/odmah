@@ -154,6 +154,73 @@ as a singleton.
 Oh well.
 */
 
+/** @type {Map<string, Record<string, any>>} */
+const _state = new Map();
+
+/**
+@template T
+@overload
+@arg {string} key
+@returns {T}
+*//**
+@template T
+@overload
+@arg {string} key
+@arg {T} default_value
+@returns {T}
+*/
+function get_state(key, default_value) {
+    if (_cursor.last_id == null) {
+        throw new Error("get_state must be called after an element with an id!");
+    }
+
+    if (!_state.has(_cursor.last_id)) {
+        set_state(key, default_value);
+        return default_value;
+    }
+
+    let state_data = _state.get(_cursor.last_id);
+    if (state_data == undefined) {
+        set_state(key, default_value);
+        return default_value;
+    }
+
+    if (!(key in state_data)) {
+        set_state(key, default_value);
+        return default_value;
+    }
+
+    return state_data[key];
+}
+
+/**
+@template T
+@arg {string} key
+@arg {T} value
+@returns {boolean}
+*/
+function set_state(key, value) {
+    if (_cursor.last_id == null) {
+        throw new Error("get_state must be called after an element with an id!");
+    }
+
+    /** @type {Record<string, any>} */
+    let state_data;
+    if (!_state.has(_cursor.last_id)) {
+        state_data = {};
+        _state.set(_cursor.last_id, state_data);
+    } else {
+        // @ts-expect-error
+        state_data = _state.get(_cursor.last_id);
+        assert(state_data, "ODMAH BUG: state_data is undefined. This should not happen.");
+    }
+
+    let old = state_data[key];
+    state_data[key] = value;
+
+    return old !== value;
+}
+
 /** @typedef {ReturnType<typeof cursor_new>} Cursor */
 
 let _cursor = cursor_new();
@@ -169,6 +236,8 @@ function cursor_new() {
         node: null,
         /** @type {Element} */
         last_element: document.body,
+        /** @type {string|null} */
+        last_id: null,
         current_frame: 0,
         stepped_in: true
     };
@@ -570,6 +639,7 @@ function _is_element(node) {
 */
 function element(tagname, id=null) {
     let c = _cursor;
+    c.last_id = id;
 
     if (c.node == null) {
         _attrs_finalize();
