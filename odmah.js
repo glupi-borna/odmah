@@ -1,6 +1,7 @@
 "use strict"
 
 /**
+    @arg {any} cond
     @arg {string} msg
     @return {asserts cond is true}
 */
@@ -152,19 +153,28 @@ as a singleton.
 
 Oh well.
 */
+
+/** @typedef {ReturnType<typeof cursor_new>} Cursor */
+
 let _cursor = cursor_new();
 function cursor_new() {
     return {
+        /** @type {Element} */
         parent: document.body,
+        /** @type {Element} */
+        root: document.body,
         // When cursor.node is null, cursor is at the end
         // of the parent element's child list.
+        /** @type {ChildNode|null} */
         node: null,
+        /** @type {Element} */
         last_element: document.body,
         current_frame: 0,
         stepped_in: true
     };
 }
 
+/** @arg {Cursor} c */
 function cursor_reset(c) {
     c.parent = document.body;
     c.node = c.parent.firstChild;
@@ -173,27 +183,64 @@ function cursor_reset(c) {
     c.current_frame++;
 }
 
+/**
+@type {Partial<Record<string, any>>}
+Stores the current element's attributes.
+*/
 let _attrs = {};
+/** Stores the current element's style. */
 let _style_str = "";
+/** Stores the current element's class. */
 let _class_str = "";
 
+/**
+@arg {string} name
+@arg {any} value
+Sets an attribute on the current element.
+*/
 function attr(name, value="") {
     _attrs[name] = value;
 }
 
+/**
+@arg {string} name
+Sets a class on the current element;
+*/
 function cls(name) {
     _class_str += name + " ";
 }
 
+/**
+@arg {string} key
+@arg {string} val
+Sets a style property on the current element.
+*/
 function style(key, val) {
     _style_str += key + ":" + val + ";";
 }
 
+/**
+@arg {string} css
+Appends styles to the current element.
+*/
 function styles(css) {
     _style_str += css;
 }
 
-function get_attributes(el) {
+/**
+@typedef {
+    Element & {
+        _attrs?: Partial<Record<string, unknown>>
+    }
+} _Element
+*/
+
+/**
+@arg {_Element} el
+@returns {Partial<Record<string, any>>}
+Gets the previous attributes set on the element.
+*/
+function _get_attributes(el) {
     if (el._attrs == undefined) el._attrs = {};
     return el._attrs;
 }
@@ -202,7 +249,7 @@ function _attrs_finalize() {
     let el = _cursor.last_element;
 
     if (_style_str) {
-        _attrs.style = _style_str;
+        _attrs["style"] = _style_str;
         _style_str = "";
     }
 
@@ -211,40 +258,48 @@ function _attrs_finalize() {
         _class_str = "";
     }
 
-    let attrs = get_attributes(el);
+    let previous_attrs = _get_attributes(el);
 
-    for (let key in attrs) {
-        let attr = attrs[key];
+    for (let key in previous_attrs) {
+        let attr = previous_attrs[key];
 
         let val = _attrs[key];
         if (val === undefined) {
             el.removeAttribute(key);
-            delete attrs[key];
+            delete previous_attrs[key];
         } else if (val != attr) {
             el.setAttribute(key, val);
-            attrs[key] = val;
+            previous_attrs[key] = val;
         }
         delete _attrs[key];
     }
 
     for (let key in _attrs) {
         el.setAttribute(key, _attrs[key]);
-        attrs[key] = _attrs[key];
+        previous_attrs[key] = _attrs[key];
         delete _attrs[key];
     }
 }
 
+/** @arg {Cursor} c */
 function cursor_finalize(c) {
     _attrs_finalize();
     while (c.node) {
         remove_after(c.node);
+        if (c.node == c.root) return;
         c.node = c.parent;
-        if (c.node)
+        if (c.node) {
+            // @ts-expect-error
             c.parent = c.node.parentElement;
+        }
     }
 }
 
+/** @type {Element[]} */
+const marked_for_remove = [];
+
 /**
+    @arg {Element} el
     mark_removed(el) is an optimization.
     Think about what happens in our rendering model when we delete an element or
     a text node:
@@ -276,12 +331,15 @@ function cursor_finalize(c) {
     a conflict in those positions, we can just insert an element without
     removing the old one, knowing that the operation must be an insertion.
 */
-const marked_for_remove = [];
 function mark_removed(el) {
     marked_for_remove.push(el);
 }
 
+/**
+@template T
+*/
 class Frame_Value {
+    /** @arg {T} default_value */
     constructor(default_value) {
         this.value = default_value;
         this.changed_this_frame = false;
@@ -292,6 +350,7 @@ class Frame_Value {
         return this.value;
     }
 
+    /** @arg {T} new_value */
     set_value(new_value) {
         if (this.value != new_value) {
             this.value = new_value;
@@ -318,6 +377,7 @@ const mouse = {
     delta_y: new Frame_Value(0),
 };
 
+/** @arg {MouseEvent} e */
 function _update_mouse(e) {
     mouse.x.set_value(e.clientX);
     mouse.y.set_value(e.clientY);
@@ -331,6 +391,7 @@ function _update_mouse(e) {
     mouse.middle.set_value(!!(e.buttons & 4));
 }
 
+/** @arg {() => void} frame_cb */
 function odmah(frame_cb) {
     document.addEventListener("mousemove", _update_mouse, true);
     document.addEventListener("mousedown", _update_mouse, true);
@@ -343,6 +404,8 @@ function odmah(frame_cb) {
 
             let mouse_rerender = false;
             for (let key in mouse) {
+                // @ts-expect-error
+                // typescript does not know that `key` can index `mouse`
                 let fv = mouse[key];
                 if (fv.needs_rerender()) mouse_rerender = true;
             }
@@ -354,6 +417,8 @@ function odmah(frame_cb) {
         }
 
         for (let key in mouse) {
+            // @ts-expect-error
+            // typescript does not know that `key` can index `mouse`
             let fv = mouse[key];
             fv.requested_this_frame = false;
             fv.changed_this_frame = false;
@@ -371,6 +436,8 @@ function odmah(frame_cb) {
         cursor_finalize(_cursor);
 
         for (let i=0; i<marked_for_remove.length; i++) {
+            // @ts-expect-error
+            // typescript does not know that `i` is a valid index
             marked_for_remove[i].remove();
         }
         marked_for_remove.length = 0;
@@ -380,6 +447,8 @@ function odmah(frame_cb) {
         mouse.delta_y.set_value(0);
 
         for (let key in mouse) {
+            // @ts-expect-error
+            // typescript does not know that `key` can index `mouse`
             let fv = mouse[key];
             if (fv.needs_rerender()) request_rerender();
         }
@@ -391,19 +460,49 @@ function odmah(frame_cb) {
 }
 
 function _hook_default() { return true; }
+
+/**
+@template [T=unknown]
+@typedef Hook_Data
+@prop {string} event
+@prop {number} happened_on_frame
+@prop {T|undefined} value
+*/
+
+/** @type {Map<EventTarget, Hook_Data[]>} */
 let hooks = new Map();
-// NOTE: The hook function only returns a boolean right now (did the event
-//      happen since the last frame or not). This can easily be extended to
-//      return more information, but I did not care to do that because I have
-//      not needed it yet.
-function hook(event, value_getter=_hook_default, el=_cursor.last_element) {
+
+/**
+@template {keyof HTMLElementEventMap} EVENT
+@template RETURN
+@arg {EVENT} event
+@arg {(e: HTMLElementEventMap[EVENT]) => RETURN} [value_getter]
+@arg {EventTarget} [el]
+@returns {RETURN|undefined}
+*/
+function hook(
+    event,
+    // @ts-expect-error
+    // The default value getter just returns true, so if somebody were
+    // to call hook<string>("click"), typescript would indicate that the
+    // returned value is a string, when in reality it will be a boolean.
+    // I don't care about this and want to provide a nice default.
+    value_getter=_hook_default,
+    el=_cursor.last_element
+) {
     let el_hooks = hooks.get(el);
-    let hook = null;
+    /** @type {Hook_Data<RETURN>|undefined} */
+    let hook = undefined;
+
+    let event_key = event + "::" + value_getter;
 
     if (el_hooks) {
         for (let i=0; i<el_hooks.length; i++) {
+            /** @type {Hook_Data} */
+            // @ts-expect-error typescript does not understand indexes
             let h = el_hooks[i];
-            if (h.event != event) continue;
+            if (h.event != event_key) continue;
+            // @ts-expect-error The type of the hook is good.
             hook = h;
             break;
         }
@@ -414,16 +513,22 @@ function hook(event, value_getter=_hook_default, el=_cursor.last_element) {
 
     if (!hook) {
         hook = {
-            event,
+            event: event_key,
             happened_on_frame: -1,
             value: undefined
         };
+        /** @type {Hook_Data<RETURN>} */
+        const h = hook;
         el_hooks.push(hook);
-        el.addEventListener(event, function (e) {
-            request_rerender();
-            hook.value = value_getter(e);
-            hook.happened_on_frame = _cursor.current_frame;
-        });
+        el.addEventListener(
+            event,
+            function (e) {
+                request_rerender();
+                // @ts-expect-error
+                h.value = value_getter(e);
+                h.happened_on_frame = _cursor.current_frame;
+            }
+        );
     }
 
     if (_cursor.current_frame-1 == hook.happened_on_frame) {
@@ -432,13 +537,13 @@ function hook(event, value_getter=_hook_default, el=_cursor.last_element) {
     return undefined;
 }
 
+/** @type Map<string, Element> */
 const _element_map = new Map();
 
 /**
-    @template {string} T
-    @arg {T} tagname
-    @arg {string} id
-    @returns {HTMLElementTagNameMap[T]}
+@arg {string} tagname
+@arg {string} id
+@returns {Element}
 */
 function get_element(tagname, id) {
     let el = _element_map.get(id);
@@ -450,10 +555,18 @@ function get_element(tagname, id) {
 }
 
 /**
-    @template {string} T
-    @arg {T} tagname
-    @arg {string|null} id
-    @returns {HTMLElementTagNameMap[T]}
+@arg {Node} node
+@returns {node is Element}
+*/
+function _is_element(node) {
+    return node.nodeType == 1;
+}
+
+/**
+@template {string} T
+@arg {T} tagname
+@arg {string|null} id
+@returns {HTMLElementTagNameMap[T]}
 */
 function element(tagname, id=null) {
     let c = _cursor;
@@ -465,6 +578,8 @@ function element(tagname, id=null) {
         // c.node is still null, no need to update it
         c.last_element = el;
         if (id) _element_map.set(id, el);
+        // @ts-expect-error
+        // Typescript does not know that el is the right type, but I do.
         return el;
 
     } else {
@@ -477,66 +592,68 @@ function element(tagname, id=null) {
             }
             c.node = el.nextSibling;
             c.last_element = el;
+            // @ts-expect-error
+            // Typescript does not know that el is the right type, but I do.
             return el;
         }
 
-        // if (c.node instanceof Element) {
-        if (c.node.nodeType == 1) {
+        if (_is_element(c.node)) {
             _attrs_finalize();
             if (tagname != c.node.localName) {
-                let el = document.createElement(tagname, id);
+                let el = document.createElement(tagname);
                 c.node.replaceWith(el);
                 c.node = el.nextSibling;
                 c.last_element = el;
+                // @ts-expect-error
+                // Typescript does not know that el is the right type, but I do.
                 return el;
             }
             let el = c.node;
             c.node = el.nextSibling;
             c.last_element = el;
+            // @ts-expect-error
+            // Typescript does not know that el is the right type, but I do.
             return el;
 
-        // } else if (c.node instanceof Text) {
-        } else {
-            let el = document.createElement(tagname, id);
+        } else /* It is a text node */ {
+            let el = document.createElement(tagname);
             c.node.replaceWith(el);
             c.node = el.nextSibling;
             c.last_element = el;
+            // @ts-expect-error
+            // Typescript does not know that el is the right type, but I do.
             return el;
         }
     }
 }
 
+/** @arg {string} txt */
 function text(txt) {
     let c = _cursor;
 
     if (c.node == null) {
         let t = new Text(txt);
         c.parent.append(t);
-        // c.node is still null, no need to update it
         return t;
 
     } else {
+        /** @type {Text|Element} */
+        // @ts-expect-error
+        const node = c.node;
 
-        // if (c.node instanceof Element) {
-        if (c.node.nodeType == 1) {
+        if (_is_element(node)) {
             let t = new Text(txt);
-            c.node.replaceWith(t);
+            node.replaceWith(t);
             c.node = t.nextSibling;
             return t;
 
-        // } else if (c.node instanceof Text) {
-        } else {
-            if (c.node.data != txt)
-                c.node.data = txt;
-            c.node = c.node.nextSibling;
+        } else /* It is a text node */ {
+            if (node.data != txt)
+                node.data = txt;
+            c.node = node.nextSibling;
             return c.node;
         }
     }
-}
-
-function container(tagname, id=null) {
-    element(tagname, id);
-    step_in();
 }
 
 function step_in() {
@@ -548,6 +665,7 @@ function step_in() {
 function step_out() {
     let c = _cursor;
     assert(c.parent, "Stepping out into nothing!");
+    assert(c.parent.parentElement, "Stepping out into nothing!");
     if (c.node) {
         if (c.node.previousSibling) {
             remove_after(c.node.previousSibling);
@@ -559,12 +677,78 @@ function step_out() {
     c.parent = c.parent.parentElement;
 }
 
-function Button(label) {
-    const button = element("button");
+/**
+@template {string} T
+@arg {T} tagname
+@arg {string|null} id
+@returns {HTMLElementTagNameMap[T]}
+*/
+function container(tagname, id=null) {
+    let el = element(tagname, id);
     step_in();
+    return el;
+}
+
+/** @arg {MouseEvent} e */
+function _button_is_left(e) { return e.button == 0; }
+
+/** @arg {MouseEvent} e */
+function _button_is_right(e) { return e.button == 2; }
+
+/** @arg {MouseEvent} e */
+function _button_is_middle(e) { return e.button == 1; }
+
+/** @arg {Element} el */
+function mouse_left_pressed(el=_cursor.last_element) {
+    return hook("mousedown", _button_is_left, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_left_released(el=_cursor.last_element) {
+    return hook("mouseup", _button_is_left, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_left_clicked(el=_cursor.last_element) {
+    return hook("click", _button_is_left, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_right_pressed(el=_cursor.last_element) {
+    return hook("mousedown", _button_is_right, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_right_released(el=_cursor.last_element) {
+    return hook("mouseup", _button_is_right, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_right_clicked(el=_cursor.last_element) {
+    return hook("click", _button_is_right, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_middle_pressed(el=_cursor.last_element) {
+    return hook("mousedown", _button_is_middle, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_middle_released(el=_cursor.last_element) {
+    return hook("mouseup", _button_is_middle, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_middle_clicked(el=_cursor.last_element) {
+    return hook("click", _button_is_middle, el) ?? false;
+}
+
+
+/** @arg {string} label */
+function Button(label) {
+    container("button");
     text(label);
     step_out();
-
-    let clicked = hook("mousedown");
-    return clicked;
+    // We trigger on press instead of on click, Carmack-style.
+    return mouse_left_pressed();
 }
