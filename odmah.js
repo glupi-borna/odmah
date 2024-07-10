@@ -965,6 +965,22 @@ function mouse_middle_clicked(el=_cursor.last_element) {
     return hook("click", _button_is_middle, el) ?? false;
 }
 
+/** @arg {WheelEvent} e */
+function _get_delta_y(e) { return e.deltaY; }
+
+/** @arg {WheelEvent} e */
+function _get_delta_x(e) { return e.deltaY; }
+
+/** @arg {Element} el */
+function wheel_y(el=_cursor.last_element) {
+    return hook("wheel", _get_delta_y, el) ?? 0;
+}
+
+/** @arg {Element} el */
+function wheel_x(el=_cursor.last_element) {
+    return hook("wheel", _get_delta_x, el) ?? 0;
+}
+
 /** @arg {string} label */
 function Button(label) {
     container("button");
