@@ -315,21 +315,10 @@ function get_attr(name) {
 }
 
 /**
-@arg {string} key
-@arg {string} val
-@deprecated
-@TODO: Delete this
-Sets a style property on the current element.
-*/
-function style(key, val) {
-    _style_str += key + ":" + val + ";";
-}
-
-/**
 @arg {string} css
 Appends styles to the current element.
 */
-function styles(css) {
+function style(css) {
     _style_str += css;
 }
 
@@ -608,7 +597,7 @@ let hooks = new Map();
 @arg {EventTarget} [el]
 @returns {RETURN|undefined}
 */
-function hook_old(
+function hook(
     event,
     // @ts-expect-error
     // The default value getter just returns true, so if somebody were
@@ -683,7 +672,7 @@ const window_hooks = new Map();
 @arg {EventTarget} el
 @returns {RETURN|undefined}
 */
-function hook(
+function hook_new(
     event,
     // @ts-expect-error
     // The default value getter just returns true, so if somebody were
@@ -739,12 +728,17 @@ function hook(
     }
 
     if (_cursor.current_frame-1 == this_hook.happened_on_frame) {
-        if (el instanceof Window) return this_hook.value;
+        if (el instanceof Window) {
+            return this_hook.value;
+        }
+
         if (
             el instanceof Element &&
             this_hook.target instanceof Node &&
             el.contains(this_hook.target)
-        ) return this_hook.value;
+        )  {
+            return this_hook.value;
+        }
     }
 
     return undefined;
@@ -897,13 +891,7 @@ function container(tagname, id=null) {
 @arg {MouseEvent} e
 @arg {number} button
 */
-function _handle_mouse_button_impl(e, button) {
-    if (e.button == button) {
-        e.preventDefault();
-        return true;
-    }
-    return false;
-};
+function _handle_mouse_button_impl(e, button) { return e.button == button; }
 
 /** @arg {MouseEvent} e */
 function _button_is_left(e) { return _handle_mouse_button_impl(e, 0); }
@@ -979,6 +967,19 @@ function wheel_y(el=_cursor.last_element) {
 /** @arg {Element} el */
 function wheel_x(el=_cursor.last_element) {
     return hook("wheel", _get_delta_x, el) ?? 0;
+}
+
+/**
+@typedef Hovered_State
+@param {boolean} is_hovered
+*/
+
+/** @arg {Element} el */
+function hovered(el=_cursor.last_element) {
+    let state = /** @type {Partial<Hovered_State>} */(get_element_state(el));
+    if (hook("mouseover")) state.is_hovered = true;
+    if (hook("mouseout")) state.is_hovered = false;
+    return state.is_hovered ?? false;
 }
 
 /** @arg {string} label */
