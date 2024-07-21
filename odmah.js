@@ -166,85 +166,6 @@ function request_rerender() {
     _needs_update = true;
 }
 
-/**
-I am kicking around the idea of "subcursors". You could imagine spawning a
-cursor elsewhere in the page (probably where you've already passed
-with the main cursor) and opting to render there. This is the only reason that
-_cursor is not a singleton -- although, I have not been super careful about this
-and subsequently have written most of the code in the framework to treat _cursor
-as a singleton.
-
-Oh well.
-*/
-
-/** @type {Map<string, Record<string, any>>} */
-const _state = new Map();
-
-/**
-@template T
-@overload
-@arg {string} key
-@returns {T}
-*//**
-@template T
-@overload
-@arg {string} key
-@arg {T} default_value
-@returns {T}
-*/
-function get_state(key, default_value) {
-    if (_cursor.last_id == null) {
-        throw new Error("get_state must be called after an element with an id!");
-    }
-
-    if (!_state.has(_cursor.last_id)) {
-        set_state(key, default_value);
-        return default_value;
-    }
-
-    let state_data = _state.get(_cursor.last_id);
-    if (state_data == undefined) {
-        set_state(key, default_value);
-        return default_value;
-    }
-
-    if (!(key in state_data)) {
-        set_state(key, default_value);
-        return default_value;
-    }
-
-    return state_data[key];
-}
-
-/**
-@template T
-@arg {string} key
-@arg {T} value
-@returns {boolean}
-*/
-function set_state(key, value) {
-    if (_cursor.last_id == null) {
-        throw new Error("get_state must be called after an element with an id!");
-    }
-
-    /** @type {Record<string, any>} */
-    let state_data;
-    if (!_state.has(_cursor.last_id)) {
-        state_data = {};
-        _state.set(_cursor.last_id, state_data);
-    } else {
-        state_data = cast_defined(
-            `State data for id ${_cursor.last_id}`,
-            _state.get(_cursor.last_id)
-        );
-    }
-
-    let old = state_data[key];
-    state_data[key] = value;
-
-    return old !== value;
-}
-
 /** @typedef {ReturnType<typeof cursor_new>} Cursor */
 
 let _cursor = cursor_new();
@@ -337,11 +258,11 @@ function set_style(css) {
         _attrs?: Partial<Record<string, unknown>>;
         _odmah_state?: Partial<Record<string, unknown>>;
     }
-} _Element
+} Odmah_Element
 */
 
 /**
-@arg {_Element} el
+@arg {Odmah_Element} el
 @returns {Partial<Record<string, any>>}
 Gets the previous attributes set on the element.
 */
@@ -351,7 +272,7 @@ function _get_attributes(el) {
 }
 
 /**
-@arg {_Element} el
+@arg {Odmah_Element} el
 @returns {Partial<Record<string, any>>}
 Gets the permanent element state.
 */
@@ -653,99 +574,7 @@ function hook(
     return undefined;
 }
 
-/**
-@typedef Hook_Data2
-@prop {Function} callback
-@prop {number} happened_on_frame
-@prop {any|undefined} value
-@prop {EventTarget|null} target
-*/
-
-/** @type {Map<string, Hook_Data2[]>} */
-const window_hooks = new Map();
-
-/**
-@template {keyof HTMLElementEventMap} EVENT
-@template RETURN
-@arg {EVENT} event
-@arg {(e: HTMLElementEventMap[EVENT]) => RETURN} value_getter
-@arg {EventTarget} el
-@returns {RETURN|undefined}
-*/
-function hook_new(
-    event,
-    // @ts-expect-error
-    // The default value getter just returns true, so if somebody were
-    // to call hook<string>("click"), typescript would indicate that the
-    // returned value is a string, when in reality it will be a boolean.
-    // I don't care about this and want to provide a nice default.
-    value_getter=_hook_default,
-    el=_cursor.last_element
-) {
-    let hooks = window_hooks.get(event);
-    let this_hook;
-
-    if (!hooks) {
-        this_hook = {
-            value: undefined,
-            callback: value_getter,
-            happened_on_frame: -1,
-            target: null
-        };
-        hooks = [this_hook];
-        window_hooks.set(event, hooks);
-
-        window.addEventListener(event, function (e) {
-            request_rerender();
-            // @ts-expect-error
-            for (let i=0; i<hooks.length; i++) {
-                // @ts-expect-error
-                let hook = /** @type {Hook_Data2} */(hooks[i]);
-                hook.value = hook.callback(e);
-                hook.happened_on_frame = _cursor.current_frame;
-                hook.target = e.target;
-            }
-        });
-
-    } else {
-        for (let i=0; i<hooks.length; i++) {
-            let hook = /** @type {Hook_Data2} */(hooks[i]);
-            if (hook.callback == value_getter) {
-                this_hook = hook;
-                break;
-            }
-        }
-
-        if (!this_hook) {
-            this_hook = {
-                value: undefined,
-                callback: value_getter,
-                happened_on_frame: -1,
-                target: null
-            };
-            hooks.push(this_hook);
-        }
-    }
-
-    if (_cursor.current_frame-1 == this_hook.happened_on_frame) {
-        if (el instanceof Window) {
-            return this_hook.value;
-        }
-
-        if (
-            el instanceof Element &&
-            this_hook.target instanceof Node &&
-            el.contains(this_hook.target)
-        )  {
-            return this_hook.value;
-        }
-    }
-
-    return undefined;
-}
-
-
-/** @type Map<string, Element> */
+/** @type {Map<string, Element>} */
 const _element_map = new Map();
 
 /**
