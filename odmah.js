@@ -194,12 +194,75 @@ function cursor_reset(c) {
     c.current_frame++;
 }
 
+class Attrs {
+    constructor() {
+        /** @type {string[]} */
+        this.keys = [];
+        /** @type {any[]} */
+        this.values = [];
+        this.length = 0;
+    }
+
+    /** @arg {string} key */
+    idx(key) {
+        let idx = this.keys.indexOf(key);
+        return idx < this.length ? idx : -1;
+    }
+
+    /** @arg {string} key */
+    get(key) {
+        let idx = this.idx(key);
+        if (idx == -1) return undefined;
+        return this.values[idx];
+    }
+
+    /**
+    @arg {string} key
+    @arg {any} val
+    */
+    set(key, val) {
+        let idx = this.idx(key);
+
+        if (idx == -1) {
+            this.keys[this.length] = key;
+            this.values[this.length] = val;
+            this.length++;
+        } else {
+            this.values[idx] = val;
+        }
+    }
+
+    /** @arg {string} key */
+    delete(key) {
+        let idx = this.idx(key);
+        if (idx != -1) {
+            this.delete_idx(idx);
+        }
+    }
+
+    /** @arg {number} idx */
+    delete_idx(idx) {
+        let last = this.length-1;
+        this.keys[idx] = /** @type {string} */(this.keys[last]);
+        this.values[idx] = this.values[last];
+        this.length--;
+    }
+
+    /** @arg {string} key */
+    has(key) {
+        return this.idx(key) != -1;
+    }
+
+    clear() {
+        this.length = 0;
+    }
+}
+
 /**
-@type {Map<string, any>}
+@type {Attrs}
 Stores the current element's attributes.
 */
-// let _attrs = {};
-let _attrs = new Map();
+let _attrs = new Attrs();
 /** Stores the current element's style. */
 let _style_str = "";
 /** Stores the current element's class. */
@@ -251,9 +314,16 @@ function set_style(css) {
 
 /**
 @typedef {
-    Element & {
-        // _attrs?: Partial<Record<string, unknown>>;
-        _attrs?: Map<string, any>;
+    EventTarget & {
+        _odmah_hooks?: Hook_Data[];
+    }
+} Odmah_Event_Target
+*/
+
+/**
+@typedef {
+    Element & Odmah_Event_Target & {
+        _attrs?: Attrs;
         _odmah_state?: Partial<Record<string, unknown>>;
     }
 } Odmah_Element
@@ -261,13 +331,22 @@ function set_style(css) {
 
 /**
 @arg {Odmah_Element} el
-/returns {Partial<Record<string, any>>}
-@returns {Map<string, any>}
+@returns {Attrs}
 Gets the previous attributes set on the element.
 */
 function _get_attributes(el) {
-    if (el._attrs == undefined) el._attrs = new Map();
+    if (el._attrs == undefined) el._attrs = new Attrs();
     return el._attrs;
+}
+
+/**
+@arg {Odmah_Event_Target} el
+@returns {Hook_Data[]}
+Gets the previous attributes set on the element.
+*/
+function _get_hooks(el) {
+    if (el._odmah_hooks == undefined) el._odmah_hooks = [];
+    return el._odmah_hooks;
 }
 
 /**
@@ -297,19 +376,26 @@ function _attrs_finalize() {
 
     let previous_attrs = _get_attributes(el);
 
-    for (let [key, attr] of previous_attrs.entries()) {
-        let val = _attrs.get(key);
+    for (let i=previous_attrs.length-1; i>=0; i--) {
+        let attr = previous_attrs.values[i];
+        let key = /** @type {string} */(previous_attrs.keys[i]);
+        let val_idx = _attrs.idx(key);
+        let val = _attrs.values[val_idx];
+
         if (val === undefined) {
             el.removeAttribute(key);
-            previous_attrs.delete(key);
+            previous_attrs.delete_idx(i);
         } else if (val != attr) {
             el.setAttribute(key, val);
-            previous_attrs.set(key, val);
+            previous_attrs.values[i] = val;
         }
-        _attrs.delete(key);
+
+        _attrs.delete_idx(val_idx);
     }
 
-    for (let [key, attr] of _attrs.entries()) {
+    for (let i=_attrs.length-1; i>=0; i--) {
+        let attr = _attrs.values[i];
+        let key = /** @type {string} */(_attrs.keys[i]);
         el.setAttribute(key, attr);
         previous_attrs.set(key, attr);
     }
@@ -503,20 +589,17 @@ function _hook_default() { return true; }
 @template [T=unknown]
 @typedef Hook_Data
 @prop {string} event
-@prop {Function} value_getter
+@prop {string} value_getter_str
 @prop {number} happened_on_frame
 @prop {T|undefined} value
 */
-
-/** @type {Map<EventTarget, Hook_Data[]>} */
-let hooks = new Map();
 
 /**
 @template {keyof HTMLElementEventMap} EVENT
 @template RETURN
 @arg {EVENT} event
 @arg {(e: HTMLElementEventMap[EVENT]) => RETURN} [value_getter]
-@arg {EventTarget} [el]
+@arg {Odmah_Event_Target} [el]
 @returns {RETURN|undefined}
 */
 function hook(
@@ -529,28 +612,24 @@ function hook(
     value_getter=_hook_default,
     el=_cursor.last_element
 ) {
-    let el_hooks = hooks.get(el);
+    let el_hooks = _get_hooks(el);
     /** @type {Hook_Data<RETURN>|undefined} */
     let hook = undefined;
+    let value_getter_str = value_getter.toString();
 
-    if (el_hooks) {
-        for (let i=0; i<el_hooks.length; i++) {
-            // This cast is technically not correct, but we check it with
-            // `h.event != event.key` afterwards.
-            let h = /** @type {Hook_Data<RETURN>} */(el_hooks[i]);
-            if (h.event != event) continue;
-            if (h.value_getter.toString() != value_getter.toString()) continue;
-            hook = h;
-            break;
-        }
-    } else {
-        el_hooks = [];
-        hooks.set(el, el_hooks);
+    for (let i=0; i<el_hooks.length; i++) {
+        // This cast is technically not correct, but we check it with
+        // `h.event != event.key` afterwards.
+        let h = /** @type {Hook_Data<RETURN>} */(el_hooks[i]);
+        if (h.event != event) continue;
+        if (h.value_getter_str != value_getter_str) continue;
+        hook = h;
+        break;
     }
 
     if (!hook) {
         hook = {
-            event, value_getter,
+            event, value_getter_str,
             happened_on_frame: -1,
             value: undefined
         };
@@ -571,6 +650,7 @@ function hook(
     if (_cursor.current_frame-1 == hook.happened_on_frame) {
         return hook.value;
     }
+
     return undefined;
 }
 

@@ -96,23 +96,31 @@ function button_counter() {
         if (Button("Button " + i)) {
             alert(`Clicked button ${i}`);
         }
+
         attr("data-idx", i);
         if (i%5==0) {
             attr("disabled");
             attr("title", "This button is divisible by 5");
         }
-        style(`
-            background-color: ${i%2?"red":"blue"};
-            color: white;
-        `);
+
         if (hovered()) {
             style(`
                 background-color: yellow;
                 color: black;
             `);
+        } else {
+            style(`
+                background-color: ${i%2?"red":"blue"};
+                color: white;
+            `);
         }
     }
     step_out();
+}
+
+/** @arg {Event} e */
+function click_target_hook(e) {
+    return e.target;
 }
 
 /** @type {Record<string, any>[]|null} */
