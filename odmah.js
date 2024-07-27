@@ -181,10 +181,7 @@ function cursor_new() {
         node: null,
         /** @type {Element} */
         last_element: document.body,
-        /** @type {string|null} */
-        last_id: null,
         current_frame: 0,
-        stepped_in: true
     };
 }
 
@@ -194,15 +191,15 @@ function cursor_reset(c) {
     c.node = c.parent.firstChild;
     c.root = document.body;
     c.last_element = document.body;
-    c.stepped_in = true;
     c.current_frame++;
 }
 
 /**
-@type {Partial<Record<string, any>>}
+@type {Map<string, any>}
 Stores the current element's attributes.
 */
-let _attrs = {};
+// let _attrs = {};
+let _attrs = new Map();
 /** Stores the current element's style. */
 let _style_str = "";
 /** Stores the current element's class. */
@@ -214,7 +211,8 @@ let _class_str = "";
 Sets an attribute on the current element.
 */
 function attr(name, value="") {
-    _attrs[name] = value;
+    // _attrs[name] = value;
+    _attrs.set(name, value);
 }
 
 /**
@@ -231,8 +229,8 @@ Gets the value of an attribute on the current element.
 */
 function get_attr(name) {
     let previous_attrs = _get_attributes(_cursor.last_element);
-    if (name in previous_attrs) return previous_attrs[name];
-    return _attrs[name];
+    if (previous_attrs.has(name)) return previous_attrs.get(name);
+    return _attrs.get(name);
 }
 
 /**
@@ -251,11 +249,11 @@ function set_style(css) {
     _style_str = css;
 }
 
-
 /**
 @typedef {
     Element & {
-        _attrs?: Partial<Record<string, unknown>>;
+        // _attrs?: Partial<Record<string, unknown>>;
+        _attrs?: Map<string, any>;
         _odmah_state?: Partial<Record<string, unknown>>;
     }
 } Odmah_Element
@@ -263,11 +261,12 @@ function set_style(css) {
 
 /**
 @arg {Odmah_Element} el
-@returns {Partial<Record<string, any>>}
+/returns {Partial<Record<string, any>>}
+@returns {Map<string, any>}
 Gets the previous attributes set on the element.
 */
 function _get_attributes(el) {
-    if (el._attrs == undefined) el._attrs = {};
+    if (el._attrs == undefined) el._attrs = new Map();
     return el._attrs;
 }
 
@@ -285,36 +284,37 @@ function _attrs_finalize() {
     let el = _cursor.last_element;
 
     if (_style_str) {
-        _attrs["style"] = _style_str;
+        // _attrs["style"] = _style_str;
+        _attrs.set("style", _style_str);
         _style_str = "";
     }
 
     if (_class_str) {
-        _attrs["class"] = _class_str;
+        // _attrs["class"] = _class_str;
+        _attrs.set("class", _class_str);
         _class_str = "";
     }
 
     let previous_attrs = _get_attributes(el);
 
-    for (let key in previous_attrs) {
-        let attr = previous_attrs[key];
-
-        let val = _attrs[key];
+    for (let [key, attr] of previous_attrs.entries()) {
+        let val = _attrs.get(key);
         if (val === undefined) {
             el.removeAttribute(key);
-            delete previous_attrs[key];
+            previous_attrs.delete(key);
         } else if (val != attr) {
             el.setAttribute(key, val);
-            previous_attrs[key] = val;
+            previous_attrs.set(key, val);
         }
-        delete _attrs[key];
+        _attrs.delete(key);
     }
 
-    for (let key in _attrs) {
-        el.setAttribute(key, _attrs[key]);
-        previous_attrs[key] = _attrs[key];
-        delete _attrs[key];
+    for (let [key, attr] of _attrs.entries()) {
+        el.setAttribute(key, attr);
+        previous_attrs.set(key, attr);
     }
+
+    _attrs.clear();
 }
 
 /** @arg {Cursor} c */
@@ -503,6 +503,7 @@ function _hook_default() { return true; }
 @template [T=unknown]
 @typedef Hook_Data
 @prop {string} event
+@prop {Function} value_getter
 @prop {number} happened_on_frame
 @prop {T|undefined} value
 */
@@ -532,14 +533,13 @@ function hook(
     /** @type {Hook_Data<RETURN>|undefined} */
     let hook = undefined;
 
-    let event_key = event + "::" + value_getter;
-
     if (el_hooks) {
         for (let i=0; i<el_hooks.length; i++) {
             // This cast is technically not correct, but we check it with
             // `h.event != event.key` afterwards.
             let h = /** @type {Hook_Data<RETURN>} */(el_hooks[i]);
-            if (h.event != event_key) continue;
+            if (h.event != event) continue;
+            if (h.value_getter.toString() != value_getter.toString()) continue;
             hook = h;
             break;
         }
@@ -550,7 +550,7 @@ function hook(
 
     if (!hook) {
         hook = {
-            event: event_key,
+            event, value_getter,
             happened_on_frame: -1,
             value: undefined
         };
@@ -601,57 +601,57 @@ function _is_element(node) {
 }
 
 /**
+@template {Element} T
+@arg {T} el
+*/
+function _step_into(el) {
+    _cursor.last_element = el;
+    _cursor.parent = el;
+    _cursor.node = el.firstChild;
+    return el;
+}
+
+/**
 @template {keyof HTMLElementTagNameMap} T
 @arg {T} tagname
 @arg {string|null} id
 @returns {HTMLElementTagNameMap[T]}
 */
-function element(tagname, id=null) {
+function container(tagname, id=null) {
     let c = _cursor;
-    c.last_id = id;
 
     if (c.node == null) {
         _attrs_finalize();
+
         let el = id==null ? document.createElement(tagname) : get_element(tagname, id);
         c.parent.append(el);
-        // c.node is still null, no need to update it
-        c.last_element = el;
-        if (id) _element_map.set(id, el);
-        return el;
+        return _step_into(el);
 
     } else {
 
         if (id) {
             _attrs_finalize();
+
             let el = get_element(tagname, id);
-            if (c.node != el) {
-                c.node.replaceWith(el);
-            }
-            c.node = el.nextSibling;
-            c.last_element = el;
-            return el;
+            if (c.node != el) c.node.replaceWith(el);
+            return _step_into(el);
         }
 
         if (_is_element(c.node)) {
             _attrs_finalize();
+
             if (tagname != c.node.localName) {
                 let el = document.createElement(tagname);
                 c.node.replaceWith(el);
-                c.node = el.nextSibling;
-                c.last_element = el;
-                return el;
+                return _step_into(el);
             }
-            let el = /** @type {HTMLElementTagNameMap[T]} */(c.node);
-            c.node = el.nextSibling;
-            c.last_element = el;
-            return el;
+
+            return _step_into(/** @type {HTMLElementTagNameMap[T]} */(c.node));
 
         } else /* It is a text node */ {
             let el = document.createElement(tagname);
             c.node.replaceWith(el);
-            c.node = el.nextSibling;
-            c.last_element = el;
-            return el;
+            return _step_into(el);
         }
     }
 }
@@ -683,12 +683,6 @@ function text(txt) {
     }
 }
 
-function step_in() {
-    let c = _cursor;
-    c.parent = c.last_element;
-    c.node = c.last_element.firstChild;
-}
-
 function step_out() {
     let c = _cursor;
     assert(c.parent, "Stepping out into nothing!");
@@ -710,9 +704,9 @@ function step_out() {
 @arg {string|null} id
 @returns {HTMLElementTagNameMap[T]}
 */
-function container(tagname, id=null) {
-    let el = element(tagname, id);
-    step_in();
+function element(tagname, id=null) {
+    let el = container(tagname, id);
+    step_out();
     return el;
 }
 
@@ -800,7 +794,7 @@ function wheel_x(el=_cursor.last_element) {
 
 /**
 @typedef Hovered_State
-@param {boolean} is_hovered
+@prop {boolean} is_hovered
 */
 
 /** @arg {Element} el */

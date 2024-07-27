@@ -258,29 +258,12 @@ function inputs() {
     p(JSON.stringify(user));
 }
 
-let ok = true;
-function conditional_step_in_out() {
-    if (Button("x")) {
-        ok = !ok;
-    }
-
-    p("Value: ", ok ? 'true' : 'false');
-
-    element("div"); // @TODO: This does not work!
-    if (ok) {
-        step_in();
-        text("This text should disappear when 'false'")
-        step_out();
-    }
-}
-
 let examples = {
     counter,
     button_counter,
     editable_table,
     double_hook,
     inputs,
-    conditional_step_in_out,
 };
 
 /**
