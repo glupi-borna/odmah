@@ -296,6 +296,32 @@ function get_attr(name) {
     return _attrs.get(name);
 }
 
+let _css_scope_counter = 0;
+function _css_scope() {
+    _css_scope_counter++;
+    return "css_scope_" + _css_scope_counter;
+}
+
+/**
+@arg {string} css_code
+@arg {string} scope
+*/
+function _css_prep(css_code, scope) {
+    return css_code.replace(/@this\./g, scope).replace(/@this\b/g, "."+scope);
+}
+
+/** @type {string[]} */
+let _css = [];
+/**
+@arg {string} css_code
+Appends styles to the current element.
+*/
+function css(css_code) {
+    let scope = _css_scope();
+    _css.push(_css_prep(css_code, scope));
+    cls(scope);
+}
+
 /**
 @arg {string} css
 Appends styles to the current element.
@@ -403,8 +429,15 @@ function _attrs_finalize() {
     _attrs.clear();
 }
 
+let _css_sheet = document.createElement("style");
 /** @arg {Cursor} c */
 function cursor_finalize(c) {
+    if (!_css_sheet.isConnected) document.head.append(_css_sheet);
+    const new_css = _css.join("\n");
+    if (new_css != _css_sheet.innerHTML) _css_sheet.innerHTML = new_css;
+    _css.length = 0;
+    _css_scope_counter = 0;
+
     _attrs_finalize();
     while (c.node) {
         remove_after(c.node);
@@ -417,6 +450,7 @@ function cursor_finalize(c) {
             );
         }
     }
+
 }
 
 /** @type {Element[]} */
@@ -567,8 +601,8 @@ function odmah(frame_cb) {
             (/** @type {Element} */(marked_for_remove[i])).remove();
         }
         marked_for_remove.length = 0;
+        if ("record_frame_time" in window) record_frame_time(performance.now() - start);
 
-        record_frame_time(performance.now() - start);
         mouse.delta_x.set_value(0);
         mouse.delta_y.set_value(0);
 
@@ -796,12 +830,29 @@ function element(tagname, id=null) {
 */
 function _handle_mouse_button_impl(e, button) { return e.button == button; }
 
+/**
+@arg {MouseEvent} e
+@arg {number} button
+*/
+function _handle_mouse_button_impl_stop(e, button) {
+    e.stopPropagation();
+    return e.button == button;
+}
+
 /** @arg {MouseEvent} e */
 function _button_is_left(e) { return _handle_mouse_button_impl(e, 0); }
 /** @arg {MouseEvent} e */
 function _button_is_right(e) { return _handle_mouse_button_impl(e, 2); }
 /** @arg {MouseEvent} e */
 function _button_is_middle(e) { return _handle_mouse_button_impl(e, 1); }
+
+/** @arg {MouseEvent} e */
+function _button_is_left_stop(e) { return _handle_mouse_button_impl_stop(e, 0); }
+/** @arg {MouseEvent} e */
+function _button_is_right_stop(e) { return _handle_mouse_button_impl_stop(e, 2); }
+/** @arg {MouseEvent} e */
+function _button_is_middle_stop(e) { return _handle_mouse_button_impl_stop(e, 1); }
+
 
 /** @arg {Event} e */
 function prevent_default(e) {
@@ -856,6 +907,54 @@ function mouse_middle_clicked(el=_cursor.last_element) {
     return hook("click", _button_is_middle, el) ?? false;
 }
 
+/** @arg {Element} el */
+function mouse_sp_left_pressed(el=_cursor.last_element) {
+    return hook("mousedown", _button_is_left_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_left_released(el=_cursor.last_element) {
+    return hook("mouseup", _button_is_left_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_left_clicked(el=_cursor.last_element) {
+    return hook("click", _button_is_left_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_right_pressed(el=_cursor.last_element) {
+    hook("contextmenu", prevent_default, el);
+    return hook("mousedown", _button_is_right_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_right_released(el=_cursor.last_element) {
+    hook("contextmenu", prevent_default, el);
+    return hook("mouseup", _button_is_right_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_right_clicked(el=_cursor.last_element) {
+    hook("contextmenu", prevent_default, el);
+    return hook("click", _button_is_right_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_middle_pressed(el=_cursor.last_element) {
+    return hook("mousedown", _button_is_middle_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_middle_released(el=_cursor.last_element) {
+    return hook("mouseup", _button_is_middle_stop, el) ?? false;
+}
+
+/** @arg {Element} el */
+function mouse_sp_middle_clicked(el=_cursor.last_element) {
+    return hook("click", _button_is_middle_stop, el) ?? false;
+}
+
 /** @arg {WheelEvent} e */
 function _get_delta_y(e) { return e.deltaY; }
 
@@ -891,5 +990,5 @@ function Button(label) {
     text(label);
     step_out();
     // We trigger on press instead of on click, Carmack-style.
-    return mouse_left_pressed();
+    return mouse_sp_left_clicked();
 }

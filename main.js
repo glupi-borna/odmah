@@ -30,7 +30,7 @@ function stats() {
     const stats = frame_time_stats();
     const keys = /** @type {(keyof typeof stats)[]} */(Object.keys(stats));
     container("details");
-        summary("Frame time stats (for last 1000 frames)");
+        summary("Frame time stats (for last 100 frames)");
         for (const key of keys) {
             p(key, ": ", stats[key]+"", "ms");
         }
@@ -87,11 +87,24 @@ function button_counter() {
         text("The buttons:");
     step_out();
 
-    container("div"); style(`
-        display: flex;
-        max-width: 90vw;
-        flex-flow: row wrap;
+    container("div"); css(`
+        @this {
+            display: flex;
+            min-width: 90vw;
+            flex-flow: row wrap;
+
+            button {
+                color: white;
+                background: blue;
+                &:nth-child(even) { background: red };
+                &:hover {
+                    background: yellow;
+                    color: black;
+                }
+            }
+        }
     `);
+
     for (let i=0; i<count; i++) {
         if (Button("Button " + i)) {
             alert(`Clicked button ${i}`);
@@ -101,18 +114,6 @@ function button_counter() {
         if (i%5==0) {
             attr("disabled");
             attr("title", "This button is divisible by 5");
-        }
-
-        if (hovered()) {
-            style(`
-                background-color: yellow;
-                color: black;
-            `);
-        } else {
-            style(`
-                background-color: ${i%2?"red":"blue"};
-                color: white;
-            `);
         }
     }
     step_out();
@@ -150,7 +151,15 @@ function editable_table() {
     hook("input");
     const search = input.value;
 
-    container("table"); style(`border-collapse: collapse`);
+    container("table"); // style(`border-collapse: collapse`);
+        css(`
+            @this {
+                border-collapse: collapse;
+                tr { background-color: #ccc }
+                tr:nth-child(odd) { background-color: #eee }
+            }
+        `)
+
         container("tr");
             for (let key of columns) {
                 container("th")
@@ -167,22 +176,22 @@ function editable_table() {
             if (!item["title"].includes(search)) continue;
             idx++;
 
-            let tr = container("tr"); style(`background-color: ${idx%2?"#ccc":"#eee"}`);
+            let tr = container("tr"); // style(`background-color: ${idx%2?"#ccc":"#eee"}`);
                 for (let key of columns) {
                     container("td");
-                        switch (typeof item[key]) {
-                            case "string": {
-                                item[key] = textbox(item[key]);
-                            } break;
+                    switch (typeof item[key]) {
+                        case "string": {
+                            item[key] = textbox(item[key]);
+                        } break;
 
-                            case "boolean": {
-                                item[key] = checkbox(item[key]);
-                            } break;
+                        case "boolean": {
+                            item[key] = checkbox(item[key]);
+                        } break;
 
-                            default: {
-                                text(item[key] + "");
-                            } break;
-                        }
+                        default: {
+                            text(item[key] + "");
+                        } break;
+                    }
                     step_out();
                 }
 

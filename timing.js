@@ -1,13 +1,14 @@
 "use strict"
 
 const frame_times = {
-    buf: new Float64Array(1000),
+    buf: new Float64Array(100),
     len: 0,
     idx: 0
 };
 
+/** @arg {number} time */
 function record_frame_time(time) {
-    if (frame_times.len < 1000) {
+    if (frame_times.len < 100) {
         frame_times.buf[frame_times.len++] = time;
     } else {
         frame_times.buf[frame_times.idx] = time;
@@ -20,13 +21,13 @@ function frame_time_stats() {
     let min = Infinity;
     let max = 0;
     for (let i=0; i<frame_times.buf.length; i++) {
-        let t = frame_times.buf[i];
+        let t = frame_times.buf[i] ?? 0;
         total += t;
         min = Math.min(min, t);
         max = Math.max(max, t);
     }
     let avg = total/frame_times.len;
     let last_idx = (frame_times.idx-1+frame_times.len)%frame_times.len;
-    let last = frame_times.buf[last_idx];
+    let last = frame_times.buf[last_idx] ?? 0;
     return {total, min, max, avg, last};
 }
