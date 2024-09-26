@@ -27,6 +27,7 @@ const pre = text_element_fn("pre");
 const summary = text_element_fn("summary");
 
 function stats() {
+    if (!("frame_time_stats" in window)) return;
     const stats = frame_time_stats();
     const keys = /** @type {(keyof typeof stats)[]} */(Object.keys(stats));
     container("details");

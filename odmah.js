@@ -989,6 +989,5 @@ function Button(label) {
     container("button");
     text(label);
     step_out();
-    // We trigger on press instead of on click, Carmack-style.
     return mouse_sp_left_clicked();
 }
