@@ -2,6 +2,30 @@
 
 Odmah is an immediate-mode UI framework that runs in the browser, on top of the DOM.
 
+To use the framework, simply include `odmah.js` in your html:
+
+```html
+<html>
+    <head>
+        <!-- ... -->
+        <script src="odmah.js"></script>
+        <script>
+            function render() {
+                container("h1");
+                    text("Hello, sailor!");
+                step_out();
+            }
+            window.onload = () => odmah(render);
+        </script>
+        <!-- ... -->
+    </head>
+
+    <body><!-- ... --></body>
+</html>
+```
+
+More concrete examples can be found in `main.js`.
+
 ## Reference
 
 ### odmah
