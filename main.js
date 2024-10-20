@@ -1,5 +1,14 @@
 "use strict"
 
+import {
+    odmah, container, step_out, element, text, style, css, attr, hook,
+    request_rerender, mark_removed, get_current_cursor, get_element_state
+} from "./odmah.mjs";
+import { assert, cast_defined } from "./modules/debug.mjs";
+import { button, input_string, checkbox } from "./modules/components.mjs";
+import { hovered } from "./modules/mouse_utils.mjs";
+import { timer_begin, timer_end, timer_stats } from "./modules/timing.mjs";
+
 let count = 0;
 
 /**
@@ -27,8 +36,7 @@ const pre = text_element_fn("pre");
 const summary = text_element_fn("summary");
 
 function stats() {
-    if (!("frame_time_stats" in window)) return;
-    const stats = frame_time_stats();
+    const stats = timer_stats();
     const keys = /** @type {(keyof typeof stats)[]} */(Object.keys(stats));
     container("details");
         summary("Frame time stats (for last 100 frames)");
@@ -39,7 +47,7 @@ function stats() {
 }
 
 function counter() {
-    if (Button("+1")) {
+    if (button("+1")) {
         count++;
     }
     style(`
@@ -60,27 +68,27 @@ function button_counter() {
         display: flex;
         column-gap: 1em;
     `);
-        if (Button("+1")) {
+        if (button("+1")) {
             count++;
         }
 
-        if (Button("-1")) {
+        if (button("-1")) {
             count--;
             mark_removed(/** @type {Element} */(div.lastChild));
         }
 
-        if (Button("/2")) {
+        if (button("/2")) {
             count = Math.floor(count/2);
         }
 
         if (count % 2 == 0) {
-            if (Button("+2")) {
+            if (button("+2")) {
                 count += 2;
             }
         }
 
-        if (Button("x10")) count *= 10;
-        if (Button("10 000")) count = 10000;
+        if (button("x10")) count *= 10;
+        if (button("10 000")) count = 10000;
     step_out();
     p("Count: ", count+"");
 
@@ -107,7 +115,7 @@ function button_counter() {
     `);
 
     for (let i=0; i<count; i++) {
-        if (Button("Button " + i)) {
+        if (button("Button " + i)) {
             alert(`Clicked button ${i}`);
         }
 
@@ -120,16 +128,6 @@ function button_counter() {
     step_out();
 }
 
-/** @arg {Event} e */
-function click_target_hook(e) {
-    return e.target;
-}
-
-/** @type {Record<string, any>[]|null} */
-let data = null;
-/** @type {string[]} */
-let columns = [];
-
 async function get_data() {
     let res = await fetch("https://jsonplaceholder.typicode.com/todos");
     /** @type {Record<string, any>[]} */
@@ -137,14 +135,64 @@ async function get_data() {
     return data;
 }
 
+/**
+@template T
+@template DEFAULT
+@typedef {
+    ({ state: "loading", data: T|DEFAULT } |
+    { state: "done", data: T } |
+    { state: "error", data: T|DEFAULT, error: any })
+    & { load(get_data: () => Promise<T>): void }
+} Sync_Data
+*/
+
+/**
+@template T
+@template [DEFAULT=null]
+@arg {() => Promise<T>} get_data
+@arg {DEFAULT} default_value
+@return {Sync_Data<T, DEFAULT>}
+*/
+function sync(
+    get_data,
+    // @ts-ignore
+    default_value=null,
+    cursor=get_current_cursor()
+) {
+    let state = get_element_state(cursor.last_element);
+
+    /** @type {Sync_Data<T, DEFAULT>} */
+    let sync_data;
+    if ("sync_data" in state) {
+        sync_data = state["sync_data"];
+    } else {
+        sync_data = { state: "loading", load, data: default_value };
+        state["sync_data"] = sync_data;
+
+        /** @arg {() => Promise<T>} get_data */
+        function load(get_data) {
+            sync_data.state = "loading";
+            get_data().then(res => {
+                sync_data.state = "done";
+                if (sync_data.state == "done") sync_data.data = res;
+            }).catch(err => {
+                sync_data.state = "error";
+                if (sync_data.state == "error") sync_data.error = err;
+            }).finally(() => request_rerender(cursor));
+        }
+
+        load(get_data);
+    }
+
+    return sync_data;
+}
+
 function editable_table() {
-    if (data == null) {
-        data = [];
-        get_data().then(d => {
-            data = d;
-            columns = Object.keys(cast_defined("Table data item", data[0]));
-            request_rerender();
-        });
+    let request = sync(get_data, []);
+
+    let columns = /** @type {string[]} */([]);
+    if (request.data.length) {
+        columns = Object.keys(cast_defined("Table data item", request.data[0]));
     }
 
     let input = element("input");
@@ -172,8 +220,8 @@ function editable_table() {
 
         let to_delete = -1;
         let idx = 0;
-        for (let i=0; i<data.length; i++) {
-            let item = cast_defined("Table item", data[i]);
+        for (let i=0; i<request.data.length; i++) {
+            let item = cast_defined("Table item", request.data[i]);
             if (!item["title"].includes(search)) continue;
             idx++;
 
@@ -197,15 +245,12 @@ function editable_table() {
                 }
 
                 container("td");
-                    if (Button("log")) {
+                    if (button("log")) {
                         console.log(item);
                     }
 
-                    if (Button("delete")) {
+                    if (button("delete")) {
                         to_delete = i;
-                        // NOTE: mark_removed will *always* imply a
-                        // request_rerender, so maybe it could call it
-                        // automatically?
                         mark_removed(tr);
                         request_rerender();
                     }
@@ -215,7 +260,7 @@ function editable_table() {
     step_out();
 
     if (to_delete >= 0) {
-        data.splice(to_delete, 1);
+        request.data.splice(to_delete, 1);
     }
 }
 
@@ -229,17 +274,6 @@ function double_hook() {
     let hook2 = hook("click");
     p(hook1 ? 'true' : 'false');
     p(hook2 ? 'true' : 'false');
-}
-
-/** @arg {boolean} checked */
-function checkbox(checked) {
-    let input = element("input");
-    input.type = "checkbox";
-    if (hook("input")) {
-        checked = input.checked;
-    }
-    input.checked = checked;
-    return checked;
 }
 
 /** @arg {string} value */
@@ -277,6 +311,7 @@ function inputs() {
 }
 
 let examples = {
+    todo,
     counter,
     button_counter,
     editable_table,
@@ -307,11 +342,54 @@ function select(value, options) {
     return value;
 }
 
-function row_start() {
-    container("div"); style(`
-        display: flex;
-        flex-flow: row;
-    `);
+function todo() {
+    let element_state = get_element_state();
+    if (!("todo" in element_state)) {
+        element_state["todo"] = {
+            todos: [{ title: "Hello, world!", done: false }],
+            next_title: ""
+        };
+    }
+
+    let todo = element_state["todo"];
+    todo.next_title = input_string(todo.next_title);
+
+    if (button("CREATE TODO")) {
+        todo.todos.push({
+            title: todo.next_title,
+            done: false
+        });
+        todo.next_title = "";
+        request_rerender();
+    }
+    if (todo.next_title.length == 0) attr("disabled");
+
+    p(`Current frame: ${get_current_cursor().current_frame}`);
+
+    container("div");
+    for (let i=0; i<todo.todos.length; i++) {
+        let item = todo.todos[i];
+
+        let el = container("div")
+            if (item.done) style("text-decoration: line-through");
+            item.done = checkbox(item.done);
+            text(item.title);
+
+            if (item.done) {
+                if (button("Delete")) {
+                    todo.todos.splice(i, 1);
+                    mark_removed(el);
+                    i--;
+                }
+            }
+        step_out();
+    }
+    step_out();
+
+    container("pre");
+        text("State\n");
+        text(JSON.stringify(todo, null, 2));
+    step_out();
 }
 
 function col_start() {
@@ -325,12 +403,10 @@ const end = step_out;
 
 window.onload = function() {
     let unlocked = false;
-    let example = counter;
+    let example = todo;
 
     odmah(function() {
-        if (hook("keydown")) {
-            request_rerender();
-        }
+        timer_begin();
 
         stats();
 
@@ -365,5 +441,7 @@ window.onload = function() {
         container("div", example.name);
             example();
         step_out();
+
+        timer_end();
     });
 }

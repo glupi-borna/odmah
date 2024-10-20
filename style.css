@@ -1,0 +1,194 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+}
+
+html {
+    --bg: #343f44;
+    --darkbg: #232a2e;
+    --fg: #d3c6aa;
+    --lightfg: #e9f0e9;
+    --darkblue: #6272a4;
+    --lightblue: #99aaff;
+    color: red;
+}
+
+body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: sans-serif, sans;
+    margin-inline: auto;
+    padding: 1em;
+    max-width: 80ch;
+}
+
+nav {
+    display: flex;
+    flex-flow: row wrap;
+    gap: 0 1em;
+    border-block: 1px solid var(--fg);
+    margin-bottom: 1em;
+    justify-content: center;
+
+    a {
+        padding: .25em 2em;
+        &:hover { outline: 1px solid var(--fg) }
+        &.current {
+            background: var(--fg);
+            color: var(--bg);
+            outline: none;
+        }
+    }
+}
+
+hr {
+    height: 1px;
+    border: none;
+    background: var(--fg);
+    margin-block: 1em;
+}
+
+a {
+    color: var(--darkblue);
+    &:visited { color: var(--lightblue) }
+}
+
+input, select {
+    background: var(--darkbg);
+    color: var(--fg);
+    border: 1px solid currentColor;
+    padding: .25em .5em;
+    min-width: 0;
+
+    &:hover {
+        background: var(--bg);
+    }
+
+    &:disabled {
+        background: var(--bg);
+        color: color-mix(in srgb, var(--fg) 50%, var(--bg));
+    }
+}
+
+select { cursor: pointer }
+select:disabled { cursor: default }
+
+input[type=checkbox] {
+    appearance: none;
+    width: 1.1em;
+    height: 1.1em;
+    padding: 0;
+    margin: 0;
+
+    &:hover { cursor: pointer }
+    &:disabled { cursor: default }
+
+    &:checked::after {
+        content: "✔";
+        line-height: 0.85;
+        height: 100%;
+        margin-inline: auto;
+        text-align: center;
+        display: block;
+    }
+}
+
+button {
+    background: var(--fg);
+    border-radius: 2px;
+    color: var(--darkbg);
+    border: 1px solid currentColor;
+    outline: 1px solid var(--fg);
+    padding: .25em .5em;
+    transition: background .1s, color .1s;
+    cursor: pointer;
+
+    &:hover { background: var(--lightfg); }
+
+    &:disabled {
+        cursor: default;
+        color: var(--fg);
+        outline-color: transparent;
+        background: transparent;
+    }
+}
+
+pre {
+    background: var(--darkbg);
+    margin: 0;
+    padding: 1em;
+}
+
+figcaption {
+    display: inline-block;
+    width: auto;
+    background: var(--fg);
+    color: var(--bg);
+    padding: .25em 3em;
+    font-size: 80%;
+
+    &:first-child { align-self: start; padding-left: 1em }
+    &:last-child { align-self: end; padding-right: 1em }
+}
+
+h1, h2, h3, h4, h5, h6 { padding-bottom: .5em }
+
+p { padding-bottom: 1em }
+
+.w-half {
+    max-width: 40ch;
+    padding: 1em;
+    margin-inline: auto;
+}
+
+.border-block {
+    border-block: 1px solid currentColor;
+}
+
+.border-bottom {
+    border-bottom: 1px solid currentColor;
+}
+
+.code-example {
+    display: flex;
+    flex-flow: row wrap;
+    background: currentColor;
+    gap: 1px;
+
+    & > pre, & > div {
+        display: flex;
+        flex-flow: row nowrap;
+        justify-content: center;
+        flex: 1 0 auto;
+        min-width: calc(50% - 2px);
+        max-width: 100%;
+        min-height: 8em;
+        justify-content: center;
+        align-items: center;
+    }
+
+    & > pre { white-space: break-spaces }
+
+    & > div {
+        flex: 1 0 min-content;
+        background: var(--bg);
+        padding: 1em;
+    }
+}
+
+.row {
+    display: flex;
+    flex-flow: row;
+    align-items: center;
+    gap: .5em;
+}
+
+.column {
+    display: flex;
+    flex-flow: column;
+    gap: .5em;
+}
+
+.overflow-hidden { overflow: hidden }
+.flex-dynamic { flex: 1 1 auto }
+.wrap { flex-wrap: wrap }

@@ -1,8 +1,10 @@
 # Odmah
 
-Odmah is an immediate-mode UI framework that runs in the browser, on top of the DOM.
+Odmah is an experimental immediate-mode UI framework that runs in the browser, on
+top of the DOM.
 
-To use the framework, simply include `odmah.js` in your html:
+To use the framework, simply copy `odmah.js` from this repo and then include it
+in your html:
 
 ```html
 <html>

@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2018",
-    "lib": ["es2018", "DOM"],
+    "target": "es2019",
+    "lib": ["es2019", "DOM"],
+    "module": "es2022",
     "allowJs": true,
     "checkJs": true,
     "declaration": false,

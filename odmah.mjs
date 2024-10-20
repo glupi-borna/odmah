@@ -1,37 +1,17 @@
 "use strict"
 
-/**
-@arg {any} cond
-@arg {string} msg
-@return {asserts cond is true}
-*/
-function assert(cond, msg) {
-    if (!cond) {
-        throw new Error(`Assertion failed: ${msg}`);
-    }
+let assert = /** @type {import("modules/debug.mjs")["assert"]} */ (_,__) => undefined;
+let cast_defined = /** @type {import("modules/debug.mjs")["cast_defined"]} */ (_, x) => /** @type {any} */(x);
+export let get_current_cursor = () => /** @type {Cursor} */(current_cursor);
+
+if (location.hostname == "localhost") {
+    ({assert, cast_defined} = await import("./modules/debug.mjs"));
+    get_current_cursor = () => cast_defined("current cursor", current_cursor);
 }
 
-/**
-@template T
-@arg {T|undefined|null} obj
-@arg {string} msg
-@return {asserts obj is T}
-*/
-function assert_defined(obj, msg) {
-    if (obj == undefined) {
-        throw new Error(`Assertion failed: ${msg}`);
-    }
-}
-
-/**
-@template T
-@arg {string} name
-@arg {T|undefined|null} obj
-@return {T}
-*/
-function cast_defined(name, obj) {
-    assert_defined(obj, `${name} is undefined!`);
-    return obj;
+/** @arg {Cursor} cursor */
+export function set_current_cursor(cursor) {
+    current_cursor = cursor;
 }
 
 /**
@@ -42,16 +22,6 @@ function remove_after(node) {
     assert(node instanceof Node, "Not a node");
     while (node.nextSibling)
         node.nextSibling.remove();
-}
-
-/**
-    @arg {Element} el
-    @desc Removes all child nodes of the given element.
-*/
-function remove_children(el) {
-    assert(el instanceof Element, "Not an element");
-    while (el.firstChild)
-        el.firstChild.remove();
 }
 
 /**
@@ -91,9 +61,9 @@ HOW/WHY
         Instead, this is what I came up with:
 
         cursor
-            We use a cursor to rendering each frame. The cursor represents a
+            We use a cursor to render each frame. The cursor represents a
             place in the DOM tree. It starts each frame at the start of the
-            document body.
+            root element.
 
         element(tagName), text(txt)
             Whenever we want to display an element, we insert it at the cursor,
@@ -146,52 +116,133 @@ HOW/WHY
         just for quality-of-life & optimisation.
 */
 
-/**
-_needs_update is an optimisation. Most frames, nothing has changed since the
-last frame, so we can skip a lot of work if we know that nothing has changed.
-This is essentially a "dirty" flag. We only perform the frame callback in
-`odmah` if it is set to `true`.
-We set _needs_update to true whenever an event listener (set up by `hook`) is
-triggered.
-*/
-let _needs_update = true;
-
-/**
-request_rerender() is a neccessary evil when using the _needs_update
-optimisation - if our state changes out of band (i.e., not via a `hook` event
-listener), we will not rerender. This is an escape hatch that allows us to
-explicitly set the _needs_update flag.
-*/
-function request_rerender() {
-    _needs_update = true;
-}
-
 /** @typedef {ReturnType<typeof cursor_new>} Cursor */
 
-let _cursor = cursor_new();
-function cursor_new() {
-    return {
+/** @type {Cursor|null} */
+let current_cursor = null;
+/** @type {Map<string, Element>} */
+const _element_map = new Map();
+
+/**
+@arg {Cursor} cursor
+request_rerender() is a neccessary evil when using the needs_update
+optimisation - if our state changes out of band (i.e., not via a `hook` event
+listener), we will not rerender. This is an escape hatch that allows us to
+explicitly set the needs_update flag.
+*/
+export function request_rerender(cursor=get_current_cursor()) {
+    cursor.needs_update = true;
+}
+
+/**
+@arg {() => void} frame_cb
+@arg {Element} root
+*/
+export function cursor_new(frame_cb, root=document.body) {
+    let cursor = {
         /** @type {Element} */
-        parent: document.body,
+        parent: root,
         /** @type {Element} */
-        root: document.body,
+        root: root,
         // When cursor.node is null, cursor is at the end
         // of the parent element's child list.
         /** @type {ChildNode|null} */
         node: null,
         /** @type {Element} */
-        last_element: document.body,
+        last_element: root,
+
+        /**
+            needs_update is an optimisation. Most frames, nothing has changed since the
+            last frame, so we can skip a lot of work if we know that nothing has changed.
+            This is essentially a "dirty" flag. We only perform the frame callback in
+            `odmah` if it is set to `true`.
+            We set needs_update to true whenever an event listener (set up by `hook`) is
+            triggered.
+        */
+        needs_update: true,
+        marked_for_remove: /** @type {Element[]} */([]),
+
         current_frame: 0,
+        render_loop,
+
+        attrs: new Attrs(),
+        style: "",
+        cls: "",
+
+        scoped_css: "",
+        stylesheet: document.createElement("style"),
+        css_scope_idx: 0,
     };
+
+    document.addEventListener("mousemove", _update_mouse, true);
+    document.addEventListener("mousedown", _update_mouse, true);
+    document.addEventListener("mouseup", _update_mouse, true);
+    const mouse_keys = /** @type {(keyof typeof mouse)[]}*/ (Object.keys(mouse));
+
+    setInterval(() => {
+        if (cursor.needs_update) {
+            requestAnimationFrame(render_loop);
+        }
+    }, 1);
+
+    function render_loop() {
+        if (!cursor.needs_update) {
+            mouse.delta_x.set_value(0);
+            mouse.delta_y.set_value(0);
+
+            let mouse_rerender = false;
+            for (let key of mouse_keys) {
+                let fv = mouse[key];
+                if (fv.needs_rerender()) mouse_rerender = true;
+            }
+
+            if (!mouse_rerender) return;
+        }
+
+        for (let key of mouse_keys) {
+            let fv = mouse[key];
+            fv.requested_this_frame = false;
+            fv.changed_this_frame = false;
+        }
+
+        cursor_reset(cursor);
+        current_cursor = cursor;
+        frame_cb();
+        current_cursor = null;
+
+        if (cursor.node == null) {
+            cursor.node = cursor.parent.lastChild;
+        } else {
+            cursor.node = cursor.node.previousSibling;
+        }
+
+        cursor_finalize(cursor);
+
+        for (let i=0; i<cursor.marked_for_remove.length; i++) {
+            (/** @type {Element} */(cursor.marked_for_remove[i])).remove();
+        }
+        cursor.marked_for_remove.length = 0;
+
+        mouse.delta_x.set_value(0);
+        mouse.delta_y.set_value(0);
+
+        for (let key of mouse_keys) {
+            let fv = mouse[key];
+            if (fv.needs_rerender()) request_rerender(cursor);
+        }
+    }
+
+    return cursor;
 }
 
-/** @arg {Cursor} c */
-function cursor_reset(c) {
-    c.parent = document.body;
-    c.node = c.parent.firstChild;
-    c.root = document.body;
-    c.last_element = document.body;
-    c.current_frame++;
+/** @arg {Cursor} cursor */
+function cursor_reset(cursor) {
+    cursor.parent = cursor.root;
+    cursor.node = cursor.parent.firstChild;
+    cursor.needs_update = false;
+    cursor.last_element = document.body;
+    cursor.current_frame++;
+    cursor.marked_for_remove.length = 0;
 }
 
 class Attrs {
@@ -259,83 +310,80 @@ class Attrs {
 }
 
 /**
-@type {Attrs}
-Stores the current element's attributes.
-*/
-let _attrs = new Attrs();
-/** Stores the current element's style. */
-let _style_str = "";
-/** Stores the current element's class. */
-let _class_str = "";
-
-/**
 @arg {string} name
 @arg {any} value
+@arg {Cursor} cursor
 Sets an attribute on the current element.
 */
-function attr(name, value="") {
-    // _attrs[name] = value;
-    _attrs.set(name, value);
+export function attr(name, value="", cursor=get_current_cursor()) {
+    cursor.attrs.set(name, value);
 }
 
 /**
 @arg {string} name
-Sets a class on the current element;
+@arg {Cursor} cursor
+Sets a class on the current element.
 */
-function cls(name) {
-    _class_str += name + " ";
+export function cls(name, cursor=get_current_cursor()) {
+    cursor.cls += name + " ";
 }
 
 /**
 @arg {string} name
+@arg {Cursor} cursor
 Gets the value of an attribute on the current element.
 */
-function get_attr(name) {
-    let previous_attrs = _get_attributes(_cursor.last_element);
-    if (previous_attrs.has(name)) return previous_attrs.get(name);
-    return _attrs.get(name);
+export function get_attr(name, cursor=get_current_cursor()) {
+    let idx = cursor.attrs.idx(name);
+    if (idx >= 0) return cursor.attrs.values[idx];
+    let previous_attrs = get_attributes(cursor.last_element);
+    return previous_attrs.get(name);
 }
 
-let _css_scope_counter = 0;
-function _css_scope() {
-    _css_scope_counter++;
-    return "css_scope_" + _css_scope_counter;
+function get_css_scope(cursor=get_current_cursor()) {
+    cursor.css_scope_idx++;
+    return "css_scope_" + cursor.css_scope_idx;
 }
 
 /**
 @arg {string} css_code
 @arg {string} scope
 */
-function _css_prep(css_code, scope) {
+function css_prep(css_code, scope) {
     return css_code.replace(/@this\./g, scope).replace(/@this\b/g, "."+scope);
 }
 
-/** @type {string[]} */
-let _css = [];
 /**
 @arg {string} css_code
+@arg {Cursor} cursor
 Appends styles to the current element.
 */
-function css(css_code) {
-    let scope = _css_scope();
-    _css.push(_css_prep(css_code, scope));
-    cls(scope);
+export function css(css_code, cursor=get_current_cursor()) {
+    if (css_code.includes("@this")) {
+        let scope = get_css_scope(cursor);
+        cursor.scoped_css += css_prep(css_code, scope);
+        cls(scope);
+    } else {
+        cursor.scoped_css += css_code;
+    }
 }
 
 /**
 @arg {string} css
+@arg {Cursor} cursor
 Appends styles to the current element.
 */
-function style(css) {
-    _style_str += css;
+export function style(css, cursor=get_current_cursor()) {
+    cursor.style += css;
 }
 
 /**
 @arg {string} css
+@arg {Cursor} cursor
 Sets the style string of the current element.
 */
-function set_style(css) {
-    _style_str = css;
+export function set_style(css, cursor=get_current_cursor()) {
+    cursor.style = css;
 }
 
 /**
@@ -360,7 +408,7 @@ function set_style(css) {
 @returns {Attrs}
 Gets the previous attributes set on the element.
 */
-function _get_attributes(el) {
+function get_attributes(el) {
     if (el._attrs == undefined) el._attrs = new Attrs();
     return el._attrs;
 }
@@ -370,7 +418,7 @@ function _get_attributes(el) {
 @returns {Hook_Data[]}
 Gets the previous attributes set on the element.
 */
-function _get_hooks(el) {
+function get_hooks(el) {
     if (el._odmah_hooks == undefined) el._odmah_hooks = [];
     return el._odmah_hooks;
 }
@@ -380,33 +428,31 @@ function _get_hooks(el) {
 @returns {Partial<Record<string, any>>}
 Gets the permanent element state.
 */
-function get_element_state(el) {
+export function get_element_state(el=get_current_cursor().last_element) {
     if (el._odmah_state == undefined) el._odmah_state = {};
     return el._odmah_state;
 }
 
-function _attrs_finalize() {
-    let el = _cursor.last_element;
+export function attrs_finalize(cursor=get_current_cursor()) {
+    let el = cursor.last_element;
 
-    if (_style_str) {
-        // _attrs["style"] = _style_str;
-        _attrs.set("style", _style_str);
-        _style_str = "";
+    if (cursor.style) {
+        cursor.attrs.set("style", cursor.style);
+        cursor.style = "";
     }
 
-    if (_class_str) {
-        // _attrs["class"] = _class_str;
-        _attrs.set("class", _class_str);
-        _class_str = "";
+    if (cursor.cls) {
+        cursor.attrs.set("class", cursor.cls);
+        cursor.cls = "";
     }
 
-    let previous_attrs = _get_attributes(el);
+    let previous_attrs = get_attributes(el);
 
     for (let i=previous_attrs.length-1; i>=0; i--) {
         let attr = previous_attrs.values[i];
         let key = /** @type {string} */(previous_attrs.keys[i]);
-        let val_idx = _attrs.idx(key);
-        let val = _attrs.values[val_idx];
+        let val_idx = cursor.attrs.idx(key);
+        let val = cursor.attrs.values[val_idx];
 
         if (val === undefined) {
             el.removeAttribute(key);
@@ -416,48 +462,44 @@ function _attrs_finalize() {
             previous_attrs.values[i] = val;
         }
 
-        _attrs.delete_idx(val_idx);
+        if (val_idx >= 0) cursor.attrs.delete_idx(val_idx);
     }
 
-    for (let i=_attrs.length-1; i>=0; i--) {
-        let attr = _attrs.values[i];
-        let key = /** @type {string} */(_attrs.keys[i]);
+    for (let i=cursor.attrs.length-1; i>=0; i--) {
+        let attr = cursor.attrs.values[i];
+        let key = /** @type {string} */(cursor.attrs.keys[i]);
         el.setAttribute(key, attr);
         previous_attrs.set(key, attr);
     }
 
-    _attrs.clear();
+    cursor.attrs.clear();
 }
 
-let _css_sheet = document.createElement("style");
-/** @arg {Cursor} c */
-function cursor_finalize(c) {
-    if (!_css_sheet.isConnected) document.head.append(_css_sheet);
-    const new_css = _css.join("\n");
-    if (new_css != _css_sheet.innerHTML) _css_sheet.innerHTML = new_css;
-    _css.length = 0;
-    _css_scope_counter = 0;
+/** @arg {Cursor} cursor */
+function cursor_finalize(cursor=get_current_cursor()) {
+    let stylesheet = cursor.stylesheet;
+    if (!stylesheet.isConnected) document.head.append(stylesheet);
+    if (cursor.scoped_css != stylesheet.innerHTML) stylesheet.innerHTML = cursor.scoped_css;
+    cursor.scoped_css = "";
+    cursor.css_scope_idx = 0;
 
-    _attrs_finalize();
-    while (c.node) {
-        remove_after(c.node);
-        if (c.node == c.root) return;
-        c.node = c.parent;
-        if (c.node) {
-            c.parent = cast_defined(
+    attrs_finalize(cursor);
+    while (cursor.node) {
+        remove_after(cursor.node);
+        if (cursor.node == cursor.root) return;
+        cursor.node = cursor.parent;
+        if (cursor.node) {
+            cursor.parent = cast_defined(
                 "Parent element of cursor node",
-                c.node.parentElement
+                cursor.node.parentElement
             );
         }
     }
-
 }
-
-/** @type {Element[]} */
-const marked_for_remove = [];
 
 /**
     @arg {Element|string} el
+    @arg {Cursor} cursor
     mark_removed(el) is an optimization.
     Think about what happens in our rendering model when we delete an element or
     a text node:
@@ -489,13 +531,13 @@ const marked_for_remove = [];
     a conflict in those positions, we can just insert an element without
     removing the old one, knowing that the operation must be an insertion.
 */
-function mark_removed(el) {
+export function mark_removed(el, cursor=cast_defined("cursor", current_cursor)) {
     if (typeof el == "string") {
         let it = _element_map.get(el);
         if (!it) return;
         el = it;
     }
-    marked_for_remove.push(el);
+    cursor.marked_for_remove.push(el);
 }
 
 /**
@@ -555,101 +597,61 @@ function _update_mouse(e) {
 }
 
 /** @arg {() => void} frame_cb */
-function odmah(frame_cb) {
-    document.addEventListener("mousemove", _update_mouse, true);
-    document.addEventListener("mousedown", _update_mouse, true);
-    document.addEventListener("mouseup", _update_mouse, true);
-
-    const mouse_keys = /** @type {(keyof typeof mouse)[]}*/ (Object.keys(mouse));
-
-    function _do_frame() {
-        if (!_needs_update) {
-            mouse.delta_x.set_value(0);
-            mouse.delta_y.set_value(0);
-
-            let mouse_rerender = false;
-            for (let key of mouse_keys) {
-                let fv = mouse[key];
-                if (fv.needs_rerender()) mouse_rerender = true;
-            }
-
-            if (!mouse_rerender) {
-                requestAnimationFrame(_do_frame);
-                return;
-            }
-        }
-
-        for (let key of mouse_keys) {
-            let fv = mouse[key];
-            fv.requested_this_frame = false;
-            fv.changed_this_frame = false;
-        }
-
-        let start = performance.now();
-        cursor_reset(_cursor);
-        _needs_update = false;
-        frame_cb();
-        if (_cursor.node == null) {
-            _cursor.node = _cursor.parent.lastChild;
-        } else {
-            _cursor.node = _cursor.node.previousSibling;
-        }
-        cursor_finalize(_cursor);
-
-        for (let i=0; i<marked_for_remove.length; i++) {
-
-            (/** @type {Element} */(marked_for_remove[i])).remove();
-        }
-        marked_for_remove.length = 0;
-        if ("record_frame_time" in window) record_frame_time(performance.now() - start);
-
-        mouse.delta_x.set_value(0);
-        mouse.delta_y.set_value(0);
-
-        for (let key of mouse_keys) {
-            let fv = mouse[key];
-            if (fv.needs_rerender()) request_rerender();
-        }
-
-        requestAnimationFrame(_do_frame);
-    }
-
-    _do_frame();
+export function odmah(frame_cb) {
+    let cursor = cursor_new(frame_cb);
+    cursor.render_loop();
 }
 
-function _hook_default() { return true; }
+function default_value_getter() { return true; }
+
+/**
+@template {Event} EVENT
+@template RETURN
+@typedef {
+    ((e: EVENT) => RETURN) & {
+        _odmah_id?: string
+    }
+} Odmah_Value_Getter
+*/
 
 /**
 @template [T=unknown]
-@typedef Hook_Data
-@prop {string} event
-@prop {string} value_getter_str
-@prop {number} happened_on_frame
-@prop {T|undefined} value
+@typedef {{
+    event: string;
+    value_getter_str: string;
+    happened_on_frame: number;
+    value: T|undefined;
+}} Hook_Data
 */
 
 /**
-@template {keyof HTMLElementEventMap} EVENT
-@template RETURN
+@template {Event_Types<TARGET>} EVENT
+@template [RETURN=boolean]
+@template {Odmah_Event_Target} [TARGET=HTMLElement]
 @arg {EVENT} event
-@arg {(e: HTMLElementEventMap[EVENT]) => RETURN} [value_getter]
-@arg {Odmah_Event_Target} [el]
-@returns {RETURN|undefined}
+@arg {Odmah_Value_Getter<Event_Value<TARGET, EVENT>, RETURN>} [value_getter]
+@arg {TARGET} [target]
+@arg {Cursor} [cursor]
+@returns {Hook_Data<RETURN>}
 */
-function hook(
+export function hook_data(
     event,
     // @ts-expect-error
     // The default value getter just returns true, so if somebody were
     // to call hook<string>("click"), typescript would indicate that the
     // returned value is a string, when in reality it will be a boolean.
     // I don't care about this and want to provide a nice default.
-    value_getter=_hook_default,
-    el=_cursor.last_element
+    value_getter=default_value_getter,
+    target, cursor=get_current_cursor(),
 ) {
-    let el_hooks = _get_hooks(el);
+    if (target == undefined) target = /** @type {TARGET} TY, typescript */(
+        /** @type {unknown} */(cursor.last_element)
+    );
+
+    let el_hooks = get_hooks(target);
     /** @type {Hook_Data<RETURN>|undefined} */
     let hook = undefined;
-    let value_getter_str = value_getter.toString();
+    let value_getter_str = value_getter._odmah_id ?? value_getter.toString();
 
     for (let i=0; i<el_hooks.length; i++) {
         // This cast is technically not correct, but we check it with
@@ -669,27 +671,50 @@ function hook(
         };
         const h = hook;
         el_hooks.push(hook);
-        el.addEventListener(
+        target.addEventListener(
             event,
             function (e) {
-                request_rerender();
-                // @ts-expect-error It is hard to type this properly, but it
-                // is correct.
+                request_rerender(cursor);
+                // @ts-expect-error
+                // It is hard to type this properly.
+                // It's fine like this.
                 h.value = value_getter(e);
-                h.happened_on_frame = _cursor.current_frame;
+                h.happened_on_frame = cursor.current_frame;
             }
         );
     }
 
-    if (_cursor.current_frame-1 == hook.happened_on_frame) {
-        return hook.value;
+    return hook;
+}
+
+/**
+@template {Event_Types<TARGET>} EVENT
+@template [RETURN=boolean]
+@template {Odmah_Event_Target} [TARGET=HTMLElement]
+@arg {EVENT} event
+@arg {Odmah_Value_Getter<Event_Value<TARGET, EVENT>, RETURN>} [value_getter]
+@arg {TARGET} [target]
+@arg {Cursor} [cursor]
+@returns {RETURN|undefined}
+*/
+export function hook(
+    event,
+    // @ts-expect-error
+    // The default value getter just returns true, so if somebody were
+    // to call hook<string>("click"), typescript would indicate that the
+    // returned value is a string, when in reality it will be a boolean.
+    // I don't care about this and want to provide a nice default.
+    value_getter=default_value_getter,
+    target, cursor=get_current_cursor(),
+) {
+    let data = hook_data(event, value_getter, target, cursor);
+
+    if (cursor.current_frame-1 == data.happened_on_frame) {
+        return data.value;
     }
 
     return undefined;
 }
-
-/** @type {Map<string, Element>} */
-const _element_map = new Map();
 
 /**
 @template {keyof HTMLElementTagNameMap} T
@@ -710,18 +735,19 @@ function get_element(tagname, id) {
 @arg {Node} node
 @returns {node is Element}
 */
-function _is_element(node) {
+function is_element(node) {
     return node.nodeType == 1;
 }
 
 /**
 @template {Element} T
 @arg {T} el
+@arg {Cursor} cursor
 */
-function _step_into(el) {
-    _cursor.last_element = el;
-    _cursor.parent = el;
-    _cursor.node = el.firstChild;
+function step_into(el, cursor=get_current_cursor()) {
+    cursor.last_element = el;
+    cursor.parent = el;
+    cursor.node = el.firstChild;
     return el;
 }
 
@@ -729,265 +755,100 @@ function _step_into(el) {
 @template {keyof HTMLElementTagNameMap} T
 @arg {T} tagname
 @arg {string|null} id
+@arg {Cursor} cursor
 @returns {HTMLElementTagNameMap[T]}
 */
-function container(tagname, id=null) {
-    let c = _cursor;
-
-    if (c.node == null) {
-        _attrs_finalize();
+export function container(tagname, id=null, cursor=get_current_cursor()) {
+    if (cursor.node == null) {
+        attrs_finalize(cursor);
 
         let el = id==null ? document.createElement(tagname) : get_element(tagname, id);
-        c.parent.append(el);
-        return _step_into(el);
+        cursor.parent.append(el);
+        return step_into(el, cursor);
 
     } else {
 
         if (id) {
-            _attrs_finalize();
+            attrs_finalize(cursor);
 
             let el = get_element(tagname, id);
-            if (c.node != el) c.node.replaceWith(el);
-            return _step_into(el);
+            if (cursor.node != el) cursor.node.replaceWith(el);
+            return step_into(el, cursor);
         }
 
-        if (_is_element(c.node)) {
-            _attrs_finalize();
+        if (is_element(cursor.node)) {
+            attrs_finalize(cursor);
 
-            if (tagname != c.node.localName) {
+            if (tagname != cursor.node.localName) {
                 let el = document.createElement(tagname);
-                c.node.replaceWith(el);
-                return _step_into(el);
+                cursor.node.replaceWith(el);
+                return step_into(el, cursor);
             }
 
-            return _step_into(/** @type {HTMLElementTagNameMap[T]} */(c.node));
+            return /** @type {HTMLElementTagNameMap[T]} */(step_into(cursor.node, cursor));
 
         } else /* It is a text node */ {
             let el = document.createElement(tagname);
-            c.node.replaceWith(el);
-            return _step_into(el);
+            cursor.node.replaceWith(el);
+            return step_into(el, cursor);
         }
     }
 }
 
-/** @arg {string} txt */
-function text(txt) {
-    let c = _cursor;
-
-    if (c.node == null) {
+/**
+@arg {string} txt
+@arg {Cursor} cursor
+*/
+export function text(txt, cursor=get_current_cursor()) {
+    if (cursor.node == null) {
         let t = new Text(txt);
-        c.parent.append(t);
+        cursor.parent.append(t);
         return t;
 
     } else {
-        const node = /** @type {Text|Element} */(c.node);
+        const node = /** @type {Text|Element} */(cursor.node);
 
-        if (_is_element(node)) {
+        if (is_element(node)) {
             let t = new Text(txt);
             node.replaceWith(t);
-            c.node = t.nextSibling;
+            cursor.node = t.nextSibling;
             return t;
 
         } else /* It is a text node */ {
             if (node.data != txt)
                 node.data = txt;
-            c.node = node.nextSibling;
-            return c.node;
+            cursor.node = node.nextSibling;
+            return cursor.node;
         }
     }
 }
 
-function step_out() {
-    let c = _cursor;
-    assert(c.parent, "Stepping out into nothing!");
-    assert(c.parent.parentElement, "Stepping out into nothing!");
-    if (c.node) {
-        if (c.node.previousSibling) {
-            remove_after(c.node.previousSibling);
+export function step_out(cursor=get_current_cursor()) {
+    assert(cursor.parent, "Stepping out into nothing!");
+    assert(cursor.parent.parentElement, "Stepping out into nothing!");
+
+    let out = cursor.parent;
+    if (cursor.node) {
+        if (cursor.node.previousSibling) {
+            remove_after(cursor.node.previousSibling);
         } else {
-            remove_children(c.parent);
+            while (cursor.parent.firstChild) cursor.parent.firstChild.remove();
         }
     }
-    c.node = c.parent.nextSibling;
-    c.parent = c.parent.parentElement;
+    cursor.node = cursor.parent.nextSibling;
+    cursor.parent = cursor.parent.parentElement;
+    return out;
 }
 
 /**
 @template {keyof HTMLElementTagNameMap} T
 @arg {T} tagname
 @arg {string|null} id
+@arg {Cursor} cursor
 @returns {HTMLElementTagNameMap[T]}
 */
-function element(tagname, id=null) {
-    let el = container(tagname, id);
-    step_out();
+export function element(tagname, id=null, cursor=get_current_cursor()) {
+    let el = container(tagname, id, cursor);
+    step_out(cursor);
     return el;
-}
-
-/**
-@arg {MouseEvent} e
-@arg {number} button
-*/
-function _handle_mouse_button_impl(e, button) { return e.button == button; }
-
-/**
-@arg {MouseEvent} e
-@arg {number} button
-*/
-function _handle_mouse_button_impl_stop(e, button) {
-    e.stopPropagation();
-    return e.button == button;
-}
-
-/** @arg {MouseEvent} e */
-function _button_is_left(e) { return _handle_mouse_button_impl(e, 0); }
-/** @arg {MouseEvent} e */
-function _button_is_right(e) { return _handle_mouse_button_impl(e, 2); }
-/** @arg {MouseEvent} e */
-function _button_is_middle(e) { return _handle_mouse_button_impl(e, 1); }
-
-/** @arg {MouseEvent} e */
-function _button_is_left_stop(e) { return _handle_mouse_button_impl_stop(e, 0); }
-/** @arg {MouseEvent} e */
-function _button_is_right_stop(e) { return _handle_mouse_button_impl_stop(e, 2); }
-/** @arg {MouseEvent} e */
-function _button_is_middle_stop(e) { return _handle_mouse_button_impl_stop(e, 1); }
-
-
-/** @arg {Event} e */
-function prevent_default(e) {
-    e.preventDefault();
-}
-
-/** @arg {Element} el */
-function mouse_left_pressed(el=_cursor.last_element) {
-    return hook("mousedown", _button_is_left, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_left_released(el=_cursor.last_element) {
-    return hook("mouseup", _button_is_left, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_left_clicked(el=_cursor.last_element) {
-    return hook("click", _button_is_left, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_right_pressed(el=_cursor.last_element) {
-    hook("contextmenu", prevent_default, el);
-    return hook("mousedown", _button_is_right, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_right_released(el=_cursor.last_element) {
-    hook("contextmenu", prevent_default, el);
-    return hook("mouseup", _button_is_right, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_right_clicked(el=_cursor.last_element) {
-    hook("contextmenu", prevent_default, el);
-    return hook("click", _button_is_right, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_middle_pressed(el=_cursor.last_element) {
-    return hook("mousedown", _button_is_middle, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_middle_released(el=_cursor.last_element) {
-    return hook("mouseup", _button_is_middle, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_middle_clicked(el=_cursor.last_element) {
-    return hook("click", _button_is_middle, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_left_pressed(el=_cursor.last_element) {
-    return hook("mousedown", _button_is_left_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_left_released(el=_cursor.last_element) {
-    return hook("mouseup", _button_is_left_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_left_clicked(el=_cursor.last_element) {
-    return hook("click", _button_is_left_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_right_pressed(el=_cursor.last_element) {
-    hook("contextmenu", prevent_default, el);
-    return hook("mousedown", _button_is_right_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_right_released(el=_cursor.last_element) {
-    hook("contextmenu", prevent_default, el);
-    return hook("mouseup", _button_is_right_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_right_clicked(el=_cursor.last_element) {
-    hook("contextmenu", prevent_default, el);
-    return hook("click", _button_is_right_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_middle_pressed(el=_cursor.last_element) {
-    return hook("mousedown", _button_is_middle_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_middle_released(el=_cursor.last_element) {
-    return hook("mouseup", _button_is_middle_stop, el) ?? false;
-}
-
-/** @arg {Element} el */
-function mouse_sp_middle_clicked(el=_cursor.last_element) {
-    return hook("click", _button_is_middle_stop, el) ?? false;
-}
-
-/** @arg {WheelEvent} e */
-function _get_delta_y(e) { return e.deltaY; }
-
-/** @arg {WheelEvent} e */
-function _get_delta_x(e) { return e.deltaY; }
-
-/** @arg {Element} el */
-function wheel_y(el=_cursor.last_element) {
-    return hook("wheel", _get_delta_y, el) ?? 0;
-}
-
-/** @arg {Element} el */
-function wheel_x(el=_cursor.last_element) {
-    return hook("wheel", _get_delta_x, el) ?? 0;
-}
-
-/**
-@typedef Hovered_State
-@prop {boolean} is_hovered
-*/
-
-/** @arg {Element} el */
-function hovered(el=_cursor.last_element) {
-    let state = /** @type {Partial<Hovered_State>} */(get_element_state(el));
-    if (hook("mouseover")) state.is_hovered = true;
-    if (hook("mouseout")) state.is_hovered = false;
-    return state.is_hovered ?? false;
-}
-
-/** @arg {string} label */
-function Button(label) {
-    container("button");
-    text(label);
-    step_out();
-    return mouse_sp_left_clicked();
 }
