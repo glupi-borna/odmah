@@ -1,6 +1,6 @@
 // NOTE: Experimental, likely to change
 
-import { element, container, text, step_out, hook, attr, request_rerender } from "../odmah.mjs";
+import { element, container, text, step_out, hook, attr, request_rerender } from "../odmah.js";
 
 /** @arg {string} label */
 export function button(label) {

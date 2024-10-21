@@ -1,7 +1,7 @@
 // NOTE: Experimental, likely to change
 
-import { get_current_cursor, hook, get_element_state } from "../odmah.mjs";
-import { prevent_default } from "./modifiers.mjs";
+import { get_current_cursor, hook, get_element_state } from "../odmah.js";
+import { prevent_default } from "./modifiers.js";
 
 /**
 @arg {MouseEvent} e

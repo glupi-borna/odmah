@@ -3,11 +3,11 @@
 import {
     odmah, container, step_out, element, text, style, css, attr, hook,
     request_rerender, mark_removed, get_current_cursor, get_element_state
-} from "./odmah.mjs";
-import { assert, cast_defined } from "./modules/debug.mjs";
-import { button, input_string, checkbox } from "./modules/components.mjs";
-import { hovered } from "./modules/mouse_utils.mjs";
-import { timer_begin, timer_end, timer_stats } from "./modules/timing.mjs";
+} from "./odmah.js";
+import { assert, cast_defined } from "./modules/debug.js";
+import { button, input_string, checkbox } from "./modules/components.js";
+import { hovered } from "./modules/mouse_utils.js";
+import { timer_begin, timer_end, timer_stats } from "./modules/timing.js";
 
 let count = 0;
 
@@ -28,8 +28,6 @@ function text_element_fn(tagname) {
     }
 }
 
-// p is a div because p elements have margins which need to be disabled and I am
-// legally obliged not to write css.
 const p = text_element_fn("div");
 const h1 = text_element_fn("h1");
 const pre = text_element_fn("pre");

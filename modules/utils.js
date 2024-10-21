@@ -1,4 +1,4 @@
-import { request_rerender } from "../odmah.mjs";
+import { request_rerender } from "../odmah.js";
 
 /**
 @template T

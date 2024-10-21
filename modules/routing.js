@@ -1,4 +1,4 @@
-import { hook } from "../../odmah.mjs";
+import { hook } from "../odmah.js";
 
 /**
 @typedef {{

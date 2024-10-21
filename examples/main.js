@@ -1,9 +1,9 @@
 "use strict"
 
-import { odmah, container, step_out, text, attr, style, cls, hook, element, get_element_state, get_current_cursor, request_rerender } from "../odmah.mjs";
-import { $text, select, html, raw } from "./shared.mjs";
-import { create_router } from "../modules/router/routing.mjs";
-import { register as register_todos } from "./todos.mjs";
+import { odmah, container, step_out, text, attr, style, cls, hook, element, get_element_state, get_current_cursor, request_rerender } from "../odmah.js";
+import { $text, select, html, raw } from "./shared.js";
+import { create_router } from "../modules/routing.js";
+import { register as register_todos } from "./todos.js";
 
 // function get_css_vars() {
 //     let vars = /** @type {Record<string, string>} */({});

@@ -1,4 +1,4 @@
-import { data } from "./data.mjs";
+import { data } from "./data.js";
 
 /**
 @template RETURN

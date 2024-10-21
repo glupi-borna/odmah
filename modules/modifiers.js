@@ -4,7 +4,7 @@
 const odmah_id_map = new Map();
 
 /**
-@template {import("../odmah.mjs").Odmah_Value_Getter<any, any>} HOOK
+@template {import("../odmah.js").Odmah_Value_Getter<any, any>} HOOK
 @arg {HOOK} hook_fn
 @arg {...Modifier} modifiers
 @return {HOOK}

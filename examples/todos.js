@@ -1,8 +1,8 @@
-import { container, step_out, text, attr, style, cls, hook, request_rerender } from "../odmah.mjs";
-import { array_remove } from "../modules/utils.mjs";
-import { checkbox, button, string_input, button_begin, button_end, $text } from "./shared.mjs";
+import { container, step_out, text, attr, style, cls, hook, request_rerender } from "../odmah.js";
+import { array_remove } from "../modules/utils.js";
+import { checkbox, button, string_input, button_begin, button_end, $text } from "./shared.js";
 
-/** @type {import("../modules/router/routing.mjs").Router} */
+/** @type {import("../modules/routing.js").Router} */
 let router;
 
 /** @arg {typeof router} main_router */

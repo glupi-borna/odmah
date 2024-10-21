@@ -1,4 +1,4 @@
-import { element, container, step_out, text, attr, hook, get_current_cursor, attrs_finalize } from "../odmah.mjs";
+import { element, container, step_out, text, attr, hook, get_current_cursor, attrs_finalize } from "../odmah.js";
 
 /** @arg {string} text */
 function get_leading_ws(text) {

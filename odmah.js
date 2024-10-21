@@ -1,11 +1,11 @@
 "use strict"
 
-let assert = /** @type {import("modules/debug.mjs")["assert"]} */ (_,__) => undefined;
-let cast_defined = /** @type {import("modules/debug.mjs")["cast_defined"]} */ (_, x) => /** @type {any} */(x);
+let assert = /** @type {import("modules/debug.js")["assert"]} */ (_,__) => undefined;
+let cast_defined = /** @type {import("modules/debug.js")["cast_defined"]} */ (_, x) => /** @type {any} */(x);
 export let get_current_cursor = () => /** @type {Cursor} */(current_cursor);
 
 if (location.hostname == "localhost") {
-    ({assert, cast_defined} = await import("./modules/debug.mjs"));
+    ({assert, cast_defined} = await import("./modules/debug.js"));
     get_current_cursor = () => cast_defined("current cursor", current_cursor);
 }
 
