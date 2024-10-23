@@ -7,7 +7,15 @@ const crypto = require("crypto");
 function live_reload_script() {
     return `
         <script>
-        window.addEventListener("load", () => {
+        function on_load(cb) {
+            if (document.readyState === "complete") {
+                cb();
+            } else {
+                window.addEventListener("load", cb);
+            }
+        }
+
+        on_load(() => {
             const ws = new WebSocket("http://localhost:${args.port}");
             console.log("Established ws connection.");
             ws.onmessage = () => {

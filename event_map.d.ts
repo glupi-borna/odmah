@@ -1,5 +1,19 @@
 type Event_Map_With_Fallback<T> = T & Record<string, Event>;
 
+type All_Events_Map =
+    & MediaQueryListEventMap
+    & DocumentEventMap
+    & WindowEventMap
+    & HTMLElementEventMap
+    & SVGElementEventMap
+    & MathMLElementEventMap
+    & GlobalEventHandlersEventMap
+;
+
+type All_Event_Types = keyof All_Events_Map;
+
+type Guess_Event_Value<EVENT extends string> = Event_Map_With_Fallback<All_Events_Map>[EVENT];
+
 type Event_Map<T extends EventTarget> =
     T extends MediaQueryList
         ? Event_Map_With_Fallback<MediaQueryListEventMap>

@@ -4,10 +4,10 @@ import { element, container, text, step_out, hook, attr, request_rerender } from
 
 /** @arg {string} label */
 export function button(label) {
-    container("button");
+    let b = container("button");
         text(label);
     step_out();
-    return hook("click");
+    return hook("click", b);
 }
 
 /** @arg {string} value */
@@ -28,12 +28,10 @@ export function input_int(value) {
     let input = element("input");
     attr("type", "number");
 
-    if (hook("blur")) {
+    if (hook("input")) {
         value = parseInt(input.value, 10);
-        if (!Number.isNaN(value)) {
-            input.valueAsNumber = value;
-        }
-    } else {
+        if (!Number.isNaN(value)) input.valueAsNumber = value;
+    } else if (input != document.activeElement) {
         input.valueAsNumber = Math.round(value);
     }
 

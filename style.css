@@ -41,6 +41,10 @@ nav {
     }
 }
 
+fieldset {
+    border: 1px solid currentColor;
+}
+
 hr {
     height: 1px;
     border: none;

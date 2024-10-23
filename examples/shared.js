@@ -1,4 +1,4 @@
-import { element, container, step_out, text, attr, hook, get_current_cursor, attrs_finalize } from "../odmah.js";
+import { element, container, step_out, text, attr, hook, get_current_cursor } from "../odmah.js";
 
 /** @arg {string} text */
 function get_leading_ws(text) {
@@ -192,7 +192,6 @@ let domparser = new DOMParser();
 /** @arg {string} contents */
 export function html(contents) {
     let cursor = get_current_cursor();
-    attrs_finalize(cursor);
     let doc = domparser.parseFromString(contents, "text/html");
     if (cursor.node == null) {
         cursor.parent.append(...Array.from(doc.body.childNodes));

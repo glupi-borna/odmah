@@ -1,6 +1,0 @@
-<!DOCTYPE html>
-<html lang="en">
-<script src="random.js"></script>
-<!--script src="timing.js"></script-->
-<!--<script src="odmah.js"></script>-->
-<script type="module" src="main.js"></script>

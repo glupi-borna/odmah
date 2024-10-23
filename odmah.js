@@ -123,6 +123,15 @@ let current_cursor = null;
 /** @type {Map<string, Element>} */
 const _element_map = new Map();
 
+Element.prototype._attrs = undefined;
+Element.prototype._style = "";
+Element.prototype._class = "";
+Element.prototype._prev_attrs = undefined;
+Element.prototype._prev_style = "";
+Element.prototype._prev_class = "";
+Element.prototype._odmah_hooks = undefined;
+Element.prototype._odmah_state = undefined;
+
 /**
 @arg {Cursor} cursor
 request_rerender() is a neccessary evil when using the needs_update
@@ -164,10 +173,6 @@ export function cursor_new(frame_cb, root=document.body) {
 
         current_frame: 0,
         render_loop,
-
-        attrs: new Attrs(),
-        style: "",
-        cls: "",
 
         scoped_css: "",
         stylesheet: document.createElement("style"),
@@ -245,6 +250,8 @@ function cursor_reset(cursor) {
     cursor.marked_for_remove.length = 0;
 }
 
+
+/** @typedef {Attrs} Attrs_ */
 class Attrs {
     constructor() {
         /** @type {string[]} */
@@ -283,6 +290,22 @@ class Attrs {
         }
     }
 
+    /**
+    @arg {string} key
+    @arg {any} val
+    */
+    append(key, val) {
+        let idx = this.idx(key);
+
+        if (idx == -1) {
+            this.keys[this.length] = key;
+            this.values[this.length] = val;
+            this.length++;
+        } else {
+            this.values[idx] += val;
+        }
+    }
+
     /** @arg {string} key */
     delete(key) {
         let idx = this.idx(key);
@@ -307,37 +330,50 @@ class Attrs {
     clear() {
         this.length = 0;
     }
+
+    clone() {
+        let attrs = new Attrs();
+        attrs.length = this.length;
+        attrs.keys = this.keys.slice();
+        attrs.values = this.values.slice();
+        return attrs;
+    }
 }
 
 /**
 @arg {string} name
 @arg {any} value
-@arg {Cursor} cursor
-Sets an attribute on the current element.
+@arg {Element} el
+Sets an attribute on the element.
 */
-export function attr(name, value="", cursor=get_current_cursor()) {
-    cursor.attrs.set(name, value);
+export function attr(name, value="", el=get_current_cursor().last_element) {
+    cast_defined("Element attrs", el._attrs).set(name, value);
+    if (!el._prev_attrs || el._prev_attrs.get(name) != value) {
+        el.setAttribute(name, value);
+    }
 }
 
 /**
 @arg {string} name
-@arg {Cursor} cursor
-Sets a class on the current element.
+@arg {Element} el
+Sets a class on the element.
 */
-export function cls(name, cursor=get_current_cursor()) {
-    cursor.cls += name + " ";
+export function cls(name, el=get_current_cursor().last_element) {
+    // cast_defined("Element attrs", el._attrs).append("class", name+" ");
+    el._class = (el._class || "") + " " + name;
 }
 
 /**
 @arg {string} name
-@arg {Cursor} cursor
-Gets the value of an attribute on the current element.
+@arg {Element} el
+Gets the value of an attribute on the element.
 */
-export function get_attr(name, cursor=get_current_cursor()) {
-    let idx = cursor.attrs.idx(name);
-    if (idx >= 0) return cursor.attrs.values[idx];
-    let previous_attrs = get_attributes(cursor.last_element);
-    return previous_attrs.get(name);
+export function get_attr(name, el=get_current_cursor().last_element) {
+    let attrs = cast_defined("Element attrs", el._attrs);
+    let idx = attrs.idx(name);
+    if (idx >= 0) return attrs.values[idx];
+    if (el._prev_attrs) return el._prev_attrs.get(name);
+    return undefined;
 }
 
 function get_css_scope(cursor=get_current_cursor()) {
@@ -370,51 +406,26 @@ export function css(css_code, cursor=get_current_cursor()) {
 
 /**
 @arg {string} css
-@arg {Cursor} cursor
-Appends styles to the current element.
+@arg {Element} el
+Appends styles to the element.
 */
-export function style(css, cursor=get_current_cursor()) {
-    cursor.style += css;
+export function style(css, el=get_current_cursor().last_element) {
+    // cast_defined("Element attrs", el._attrs).append("style", css);
+    el._style = (el._style || "") + css;
 }
 
 /**
 @arg {string} css
-@arg {Cursor} cursor
-Sets the style string of the current element.
+@arg {Element} el
+Sets the style string of the element.
 */
-export function set_style(css, cursor=get_current_cursor()) {
-    cursor.style = css;
+export function set_style(css, el=get_current_cursor().last_element) {
+    // cast_defined("Element attrs", el._attrs).append("style", css);
+    el._style = css;
 }
 
 /**
-@typedef {
-    EventTarget & {
-        _odmah_hooks?: Hook_Data[];
-    }
-} Odmah_Event_Target
-*/
-
-/**
-@typedef {
-    Element & Odmah_Event_Target & {
-        _attrs?: Attrs;
-        _odmah_state?: Partial<Record<string, unknown>>;
-    }
-} Odmah_Element
-*/
-
-/**
-@arg {Odmah_Element} el
-@returns {Attrs}
-Gets the previous attributes set on the element.
-*/
-function get_attributes(el) {
-    if (el._attrs == undefined) el._attrs = new Attrs();
-    return el._attrs;
-}
-
-/**
-@arg {Odmah_Event_Target} el
+@arg {EventTarget} el
 @returns {Hook_Data[]}
 Gets the previous attributes set on the element.
 */
@@ -424,7 +435,7 @@ function get_hooks(el) {
 }
 
 /**
-@arg {Odmah_Element} el
+@arg {Element} el
 @returns {Partial<Record<string, any>>}
 Gets the permanent element state.
 */
@@ -433,46 +444,41 @@ export function get_element_state(el=get_current_cursor().last_element) {
     return el._odmah_state;
 }
 
-export function attrs_finalize(cursor=get_current_cursor()) {
-    let el = cursor.last_element;
+/** @arg {Element} element */
+function finalize(element) {
+    let attrs = element._attrs;
+    let prev_attrs = element._prev_attrs;
+    if (!attrs) return;
+    if (!prev_attrs) prev_attrs = new Attrs();
 
-    if (cursor.style) {
-        cursor.attrs.set("style", cursor.style);
-        cursor.style = "";
+    let prev_keys = prev_attrs.keys;
+    for (let i=0; i<prev_attrs.length; i++) {
+        let key = /** @type {string} */(prev_keys[i]);
+        if (!attrs.has(key)) element.removeAttribute(key);
     }
 
-    if (cursor.cls) {
-        cursor.attrs.set("class", cursor.cls);
-        cursor.cls = "";
+    if (element._prev_style != element._style) {
+        element.setAttribute("style", element._style + "");
     }
 
-    let previous_attrs = get_attributes(el);
-
-    for (let i=previous_attrs.length-1; i>=0; i--) {
-        let attr = previous_attrs.values[i];
-        let key = /** @type {string} */(previous_attrs.keys[i]);
-        let val_idx = cursor.attrs.idx(key);
-        let val = cursor.attrs.values[val_idx];
-
-        if (val === undefined) {
-            el.removeAttribute(key);
-            previous_attrs.delete_idx(i);
-        } else if (val != attr) {
-            el.setAttribute(key, val);
-            previous_attrs.values[i] = val;
-        }
-
-        if (val_idx >= 0) cursor.attrs.delete_idx(val_idx);
+    if (element._prev_class != element._class) {
+        element.className = element._class || '';
     }
 
-    for (let i=cursor.attrs.length-1; i>=0; i--) {
-        let attr = cursor.attrs.values[i];
-        let key = /** @type {string} */(cursor.attrs.keys[i]);
-        el.setAttribute(key, attr);
-        previous_attrs.set(key, attr);
-    }
+    element._prev_attrs = attrs;
+    element._prev_class = element._class || '';
+    element._prev_style = element._style || '';
+    element._attrs = prev_attrs;
+    element._style = "";
+    element._class = "";
+    prev_attrs.length = 0;
+}
 
-    cursor.attrs.clear();
+function render_finalize(cursor=get_current_cursor()) {
+    let iter = document.createNodeIterator(cursor.root, NodeFilter.SHOW_ELEMENT);
+    finalize(cursor.root);
+    let n;
+    while (n=iter.nextNode()) finalize(/** @type {Element} */(n));
 }
 
 /** @arg {Cursor} cursor */
@@ -483,10 +489,9 @@ function cursor_finalize(cursor=get_current_cursor()) {
     cursor.scoped_css = "";
     cursor.css_scope_idx = 0;
 
-    attrs_finalize(cursor);
     while (cursor.node) {
+        if (cursor.node == cursor.root) break;
         remove_after(cursor.node);
-        if (cursor.node == cursor.root) return;
         cursor.node = cursor.parent;
         if (cursor.node) {
             cursor.parent = cast_defined(
@@ -495,6 +500,8 @@ function cursor_finalize(cursor=get_current_cursor()) {
             );
         }
     }
+
+    render_finalize(cursor);
 }
 
 /**
@@ -627,7 +634,7 @@ function default_value_getter() { return true; }
 /**
 @template {Event_Types<TARGET>} EVENT
 @template [RETURN=boolean]
-@template {Odmah_Event_Target} [TARGET=HTMLElement]
+@template {EventTarget} [TARGET=HTMLElement]
 @arg {EVENT} event
 @arg {Odmah_Value_Getter<Event_Value<TARGET, EVENT>, RETURN>} [value_getter]
 @arg {TARGET} [target]
@@ -642,7 +649,8 @@ export function hook_data(
     // returned value is a string, when in reality it will be a boolean.
     // I don't care about this and want to provide a nice default.
     value_getter=default_value_getter,
-    target, cursor=get_current_cursor(),
+    target,
+    cursor=get_current_cursor(),
 ) {
     if (target == undefined) target = /** @type {TARGET} TY, typescript */(
         /** @type {unknown} */(cursor.last_element)
@@ -651,7 +659,7 @@ export function hook_data(
     let el_hooks = get_hooks(target);
     /** @type {Hook_Data<RETURN>|undefined} */
     let hook = undefined;
-    let value_getter_str = value_getter._odmah_id ?? value_getter.toString();
+    let value_getter_str = value_getter.name || value_getter.toString();
 
     for (let i=0; i<el_hooks.length; i++) {
         // This cast is technically not correct, but we check it with
@@ -687,10 +695,42 @@ export function hook_data(
     return hook;
 }
 
+// I'm gonna do what's called a "pro gamer move"
+/**
+@overload
+@arg {All_Event_Types} event
+@returns {true|undefined}
+*/
+/**
+@template {All_Event_Types} EVENT
+@template {any} RETURN
+@overload
+@arg {EVENT} event
+@arg {Odmah_Value_Getter<Guess_Event_Value<EVENT>, RETURN>} value_getter
+@returns {RETURN|undefined}
+*/
+/**
+@template {Event_Types<TARGET>} EVENT
+@template {EventTarget} TARGET
+@overload
+@arg {EVENT} event
+@arg {TARGET} target
+@returns {RETURN|undefined}
+*/
+/**
+@template {Event_Types<TARGET>} EVENT
+@template {EventTarget} TARGET
+@template {any} RETURN
+@overload
+@arg {EVENT} event
+@arg {Odmah_Value_Getter<Guess_Event_Value<EVENT>, RETURN>} value_getter
+@arg {TARGET} target
+@returns {RETURN|undefined}
+*/
 /**
 @template {Event_Types<TARGET>} EVENT
 @template [RETURN=boolean]
-@template {Odmah_Event_Target} [TARGET=HTMLElement]
+@template {EventTarget} [TARGET=HTMLElement]
 @arg {EVENT} event
 @arg {Odmah_Value_Getter<Event_Value<TARGET, EVENT>, RETURN>} [value_getter]
 @arg {TARGET} [target]
@@ -707,6 +747,12 @@ export function hook(
     value_getter=default_value_getter,
     target, cursor=get_current_cursor(),
 ) {
+    if (typeof(value_getter) == "object") {
+        target = value_getter;
+        // @ts-ignore
+        value_getter = default_value_getter;
+    }
+
     let data = hook_data(event, value_getter, target, cursor);
 
     if (cursor.current_frame-1 == data.happened_on_frame) {
@@ -745,6 +791,7 @@ function is_element(node) {
 @arg {Cursor} cursor
 */
 function step_into(el, cursor=get_current_cursor()) {
+    if (!el._attrs) el._attrs = new Attrs();
     cursor.last_element = el;
     cursor.parent = el;
     cursor.node = el.firstChild;
@@ -760,25 +807,20 @@ function step_into(el, cursor=get_current_cursor()) {
 */
 export function container(tagname, id=null, cursor=get_current_cursor()) {
     if (cursor.node == null) {
-        attrs_finalize(cursor);
-
-        let el = id==null ? document.createElement(tagname) : get_element(tagname, id);
+        /** @type {HTMLElementTagNameMap[T]} */
+        let el = id == null ? document.createElement(tagname) : get_element(tagname, id);
         cursor.parent.append(el);
         return step_into(el, cursor);
 
     } else {
 
         if (id) {
-            attrs_finalize(cursor);
-
             let el = get_element(tagname, id);
             if (cursor.node != el) cursor.node.replaceWith(el);
             return step_into(el, cursor);
         }
 
         if (is_element(cursor.node)) {
-            attrs_finalize(cursor);
-
             if (tagname != cursor.node.localName) {
                 let el = document.createElement(tagname);
                 cursor.node.replaceWith(el);
@@ -798,6 +840,7 @@ export function container(tagname, id=null, cursor=get_current_cursor()) {
 /**
 @arg {string} txt
 @arg {Cursor} cursor
+@returns {Text}
 */
 export function text(txt, cursor=get_current_cursor()) {
     if (cursor.node == null) {
@@ -815,10 +858,10 @@ export function text(txt, cursor=get_current_cursor()) {
             return t;
 
         } else /* It is a text node */ {
-            if (node.data != txt)
-                node.data = txt;
+            if (node.data != txt) node.data = txt;
+            let ret = /** @type {Text} */(cursor.node);
             cursor.node = node.nextSibling;
-            return cursor.node;
+            return ret;
         }
     }
 }

@@ -69,6 +69,11 @@ export function some(array, perc=0.9) {
     return out;
 }
 
+/** @arg {Table} table */
+export function row(table) {
+    return table.data.length > 0 ? pick(table.data) : null;
+}
+
 /** @template T @arg {T[]} array @arg {(t: T) => T} fn */
 export function map_maybe(array, fn, perc=0.5) {
     return array.map(item => Math.random() < perc ? fn(item) : item);
@@ -77,13 +82,13 @@ export function map_maybe(array, fn, perc=0.5) {
 export function first_name() {
     if (Math.random()<0.2)
         return `${pick(data.first_names)} ${pick(data.first_names)}`;
-    return pick(data.first_names);
+    return defined(pick(data.first_names));
 }
 
 export function last_name() {
     if (Math.random()<0.2)
         return `${pick(data.last_names)} ${pick(data.last_names)}`;
-    return pick(data.last_names);
+    return defined(pick(data.last_names));
 }
 
 export function email(parts=[first_name(), last_name()]) {
