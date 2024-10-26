@@ -1,5 +1,6 @@
 import { container, step_out, text, attr, style, cls, hook, request_rerender } from "../odmah.js";
 import { array_remove } from "../modules/utils.js";
+import { container_id } from "../modules/utils/simple_id.js";
 import { checkbox, button, string_input, button_begin, button_end, $text } from "./shared.js";
 
 /** @type {import("../modules/routing.js").Router} */
@@ -81,7 +82,7 @@ function create_todo_form() {
 }
 
 function example_todos() {
-    container("div", "example-todos"); cls("column w-half");
+    container_id("div#example-todos"); cls("column w-half");
         create_todo_form();
 
         container("div"); cls("column"); style("margin-top: .5em");
@@ -97,7 +98,7 @@ function example_todo_single() {
     let todo = todos.find(t => t.id == todo_id);
     if (!todo) { router.navigate("#/todos"); return; }
 
-    container("div"); cls("column w-half");
+    container_id("div#example-todo-single"); cls("column w-half");
         $text.h2(`TODO: ${todo.title}`);
 
         $text.time(`Created at: ${todo.created.toLocaleString()}`);

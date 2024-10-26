@@ -3,6 +3,7 @@
 import { odmah, container, step_out, text, attr, style, cls, hook, element, get_element_state, get_current_cursor, request_rerender } from "../odmah.js";
 import { $text, select, html, raw } from "./shared.js";
 import { create_router } from "../modules/routing.js";
+import { container_id } from "../modules/utils/simple_id.js";
 import { register as register_todos } from "./todos.js";
 
 // function get_css_vars() {
@@ -43,7 +44,7 @@ function nav_item(label, route) {
 }
 
 function navigation() {
-    container("div", "navigation");
+    container("div");
         container("h1");
             text("Odmah")
         step_out();
@@ -142,7 +143,7 @@ const simple_examples = {
 
 let example = "Hello, world!";
 function welcome() {
-    container("div"); cls("column");
+    container_id("div#welcome"); cls("column");
         html(`
             <p>The <a href="#/what-is-immediate-mode">immediate-mode</a>
                 javascript framework!
