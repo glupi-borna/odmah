@@ -24,104 +24,10 @@ function remove_after(node) {
         node.nextSibling.remove();
 }
 
-/**
-
-HOW/WHY
-    To make an immediate mode wrapper around a retained mode api (the DOM), we
-    need to:
-    1. Have a render loop.
-        *I think* immediate mode code implies that we write normal, imperative
-        code, and the UI is redrawn from scratch every frame. This is nice
-        because we don't have to bother with special ways of handling
-        application state, and our control flow is easy to understand.
-
-        We achieve this by calling the `odmah` function and providing it a frame
-        callback -- a function that renders a single frame of our whole app.
-
-        `odmah` sets up the `requestAnimationFrame` loop that will call our frame
-        callback whenever it needs a new frame.
-
-    2. Somehow insert and remove elements on demand without rebuilding the whole
-        DOM tree every frame. Somehow handle events synchronously, without
-        creating and removing event listeners every frame.
-
-        This is very important, because there is *no way* that we can just
-        discard the whole DOM tree every frame. If this was not a wrapper around
-        a retained mode UI -- if we were writing our own rendering -- it would
-        not be a problem.
-
-        But the browser does not expect to be creating elements and throwing
-        them away immediately.
-
-        The browser also keeps around useful state (for example, where the caret
-        is within an active input field, etc.). Throwing this away means that we
-        have to reimplement it, which is out of the question. Even if it was
-        possible to make it run efficiently, I am *not* coding that.
-
-        Instead, this is what I came up with:
-
-        cursor
-            We use a cursor to render each frame. The cursor represents a
-            place in the DOM tree. It starts each frame at the start of the
-            root element.
-
-        element(tagName), text(txt)
-            Whenever we want to display an element, we insert it at the cursor,
-            and advance the cursor forward.
-
-            When we are about to insert the element at the cursor, we check
-            that there isn't already an element of that type under the cursor.
-                - If there is, we just advance the cursor, because no other work
-                needs to be done.
-                - If the element under the cursor is not of the type we want, we
-                remove it and insert a new element of the correct type.
-                - If there is no element under the cursor, we insert a new
-                element of the correct type.
-
-            The same process applies to text nodes -- except when there is a
-            text node under the cursor, but the content of that text node is not
-            what we want to put there. In that case, we can simply update the
-            content of the text node, without inserting or removing anything.
-
-        step_in(), step_out()
-            If we want to add children to an element, we move the cursor inside
-            of it (by calling step_in() after element()), we display the
-            children, and then we move the cursor out (by calling step_out()).
-
-            If there are nodes after the cursor when we are stepping out, we
-            remove them -- they must be from a previous frame, and we must not
-            have displayed them this frame.
-                If you think about it, any node in front of the cursor must be
-                from a previous frame, and any node behind the cursor must be
-                from this frame. This is simply true of our rendering model.
-                Because of this, we can make the above assumption - any element
-                after the cursor before we step out of an element must be
-                something that was rendered on the previous frame, but not on
-                this frame.
-
-        hook(event, element?)
-            If we want to synchronously handle events, we have to have some way
-            of accessing them synchronously. In immediate mode terms, we want to
-            know if something has occured since the last frame was rendered.
-
-            This is rather simple - we attach the desired event listener and,
-            when the event fires, we insert it into a map where we can easily
-            look it up later.
-
-            The hook(event, element?) function does both these things - sets up
-            an event listener (if one does not already exist) and returns the
-            value stored in the event map (if one exists).
-
-        Funnily enough, this is *all* we need. Everything else that is here is
-        just for quality-of-life & optimisation.
-*/
-
 /** @typedef {ReturnType<typeof cursor_new>} Cursor */
 
 /** @type {Cursor|null} */
 let current_cursor = null;
-/** @type {Map<string, Element>} */
-const _element_map = new Map();
 
 Element.prototype._attrs = undefined;
 Element.prototype._style = "";
@@ -143,6 +49,38 @@ export function request_rerender(cursor=get_current_cursor()) {
     cursor.needs_update = true;
 }
 
+/** @template T */
+export class Dispatcher {
+    /** @typedef {(value: T) => void} Callback */
+
+    /** @arg {T} value */
+    constructor(value) {
+        this.value = value;
+        /** @type {Callback[]} */
+        this.callbacks = [];
+    }
+
+    /** @arg {Callback} cb */
+    onchange(cb) {
+        this.callbacks.push(cb);
+    }
+
+    /** @arg {Callback} cb */
+    unhook(cb) {
+        let idx = this.callbacks.indexOf(cb);
+        if (idx == -1) return;
+        this.callbacks.splice(idx, 1);
+    }
+
+    /** @arg {T} value */
+    dispatch(value) {
+        this.value = value;
+        for (let i=0; i<this.callbacks.length; i++) {
+            /** @type {Callback} */(this.callbacks[i])(value);
+        }
+    }
+}
+
 /**
 @arg {() => void} frame_cb
 @arg {Element} root
@@ -159,6 +97,9 @@ export function cursor_new(frame_cb, root=document.body) {
         node: null,
         /** @type {Element} */
         last_element: root,
+
+        before_finalize: new Dispatcher(undefined),
+        after_finalize: new Dispatcher(undefined),
 
         /**
             needs_update is an optimisation. Most frames, nothing has changed since the
@@ -179,11 +120,6 @@ export function cursor_new(frame_cb, root=document.body) {
         css_scope_idx: 0,
     };
 
-    document.addEventListener("mousemove", _update_mouse, true);
-    document.addEventListener("mousedown", _update_mouse, true);
-    document.addEventListener("mouseup", _update_mouse, true);
-    const mouse_keys = /** @type {(keyof typeof mouse)[]}*/ (Object.keys(mouse));
-
     setInterval(() => {
         if (cursor.needs_update) {
             requestAnimationFrame(render_loop);
@@ -191,25 +127,6 @@ export function cursor_new(frame_cb, root=document.body) {
     }, 1);
 
     function render_loop() {
-        if (!cursor.needs_update) {
-            mouse.delta_x.set_value(0);
-            mouse.delta_y.set_value(0);
-
-            let mouse_rerender = false;
-            for (let key of mouse_keys) {
-                let fv = mouse[key];
-                if (fv.needs_rerender()) mouse_rerender = true;
-            }
-
-            if (!mouse_rerender) return;
-        }
-
-        for (let key of mouse_keys) {
-            let fv = mouse[key];
-            fv.requested_this_frame = false;
-            fv.changed_this_frame = false;
-        }
-
         cursor_reset(cursor);
         current_cursor = cursor;
         frame_cb();
@@ -221,6 +138,7 @@ export function cursor_new(frame_cb, root=document.body) {
             cursor.node = cursor.node.previousSibling;
         }
 
+        cursor.before_finalize.dispatch(undefined);
         cursor_finalize(cursor);
 
         for (let i=0; i<cursor.marked_for_remove.length; i++) {
@@ -228,13 +146,7 @@ export function cursor_new(frame_cb, root=document.body) {
         }
         cursor.marked_for_remove.length = 0;
 
-        mouse.delta_x.set_value(0);
-        mouse.delta_y.set_value(0);
-
-        for (let key of mouse_keys) {
-            let fv = mouse[key];
-            if (fv.needs_rerender()) request_rerender(cursor);
-        }
+        cursor.after_finalize.dispatch(undefined);
     }
 
     return cursor;
@@ -505,102 +417,12 @@ function cursor_finalize(cursor=get_current_cursor()) {
 }
 
 /**
-    @arg {Element|string} el
-    @arg {Cursor} cursor
-    mark_removed(el) is an optimization.
-    Think about what happens in our rendering model when we delete an element or
-    a text node:
-        <button>One</button>
-        <button>Two</button> <!-- this one gets deleted -->
-        <button>Tri</button>
-        <button>444</button>
-        <button>Pet</button>
-
-    The cursor skips the "One" button, then it removes the "Two" button and
-    creates a new "Tri" in its place. Then it sees the old "Tri", removes it,
-    and inserts "444" in its place. Then it sees the old "444", removes it, and
-    inserts "Pet" in its place. Finally, it removes the old "Pet".
-
-    Removing "Two" should at most be a single operation, but here, it actually
-    triggers 7 operations (remove "Two", insert "Tri", remove "Tri",
-    insert "444", remove "444", insert "Pet", remove "Pet"). This only gets
-    worse the more elements are in the list.
-
-    To optimize this, we allow user code to mark an element for removal via the
-    mark_removed(el) function. Any element marked with this function is removed
-    from the DOM after the current frame is finished rendering. The above
-    example produces 0 operations if "Two" does not exist, no matter how many
-    siblings follow it.
-
-    A similar performance problem exists for insertions, and a similar
-    optimization is possible. We could mark positions in the DOM tree where
-    elements are going to be inserted in the next frame. Then, when we encounter
-    a conflict in those positions, we can just insert an element without
-    removing the old one, knowing that the operation must be an insertion.
+@arg {Element} el
+@arg {Cursor} cursor
+Remove the element before the frame has been rendered.
 */
 export function mark_removed(el, cursor=cast_defined("cursor", current_cursor)) {
-    if (typeof el == "string") {
-        let it = _element_map.get(el);
-        if (!it) return;
-        el = it;
-    }
     cursor.marked_for_remove.push(el);
-}
-
-/**
-@template T
-*/
-class Frame_Value {
-    /** @arg {T} default_value */
-    constructor(default_value) {
-        this.value = default_value;
-        this.changed_this_frame = false;
-    }
-
-    get() {
-        this.requested_this_frame = true;
-        return this.value;
-    }
-
-    /** @arg {T} new_value */
-    set_value(new_value) {
-        if (this.value != new_value) {
-            this.value = new_value;
-            this.changed_this_frame = true;
-        }
-    }
-
-    needs_rerender() {
-        if (typeof(this.value) == "boolean") {
-            return this.changed_this_frame && this.requested_this_frame;
-        }
-        return this.requested_this_frame;
-    }
-}
-
-const mouse = {
-    x: new Frame_Value(0),
-    y: new Frame_Value(0),
-    buttons: new Frame_Value(0),
-    left: new Frame_Value(false),
-    right: new Frame_Value(false),
-    middle: new Frame_Value(false),
-    delta_x: new Frame_Value(0),
-    delta_y: new Frame_Value(0),
-};
-
-/** @arg {MouseEvent} e */
-function _update_mouse(e) {
-    mouse.x.set_value(e.clientX);
-    mouse.y.set_value(e.clientY);
-
-    mouse.delta_x.set_value(mouse.delta_x.value + e.movementX);
-    mouse.delta_y.set_value(mouse.delta_y.value + e.movementY);
-
-    mouse.buttons.set_value(e.buttons);
-    mouse.left.set_value(!!(e.buttons & 1));
-    mouse.right.set_value(!!(e.buttons & 2));
-    mouse.middle.set_value(!!(e.buttons & 4));
 }
 
 /** @arg {() => void} frame_cb */
@@ -765,23 +587,17 @@ export function hook(
 /**
 @template {keyof HTMLElementTagNameMap} T
 @arg {T} tagname
-@arg {string} id
 @returns {HTMLElementTagNameMap[T]}
 */
-function get_element(tagname, id) {
-    let el = _element_map.get(id);
-    if (!el) {
-        el = document.createElement(tagname);
-        _element_map.set(id, el);
-    }
-    return /** @type {HTMLElementTagNameMap[T]} */(el);
+export function create_element(tagname) {
+    return document.createElement(tagname);
 }
 
 /**
 @arg {Node} node
 @returns {node is Element}
 */
-function is_element(node) {
+export function is_element(node) {
     return node.nodeType == 1;
 }
 
@@ -790,7 +606,7 @@ function is_element(node) {
 @arg {T} el
 @arg {Cursor} cursor
 */
-function step_into(el, cursor=get_current_cursor()) {
+export function step_into(el, cursor=get_current_cursor()) {
     if (!el._attrs) el._attrs = new Attrs();
     cursor.last_element = el;
     cursor.parent = el;
@@ -801,28 +617,21 @@ function step_into(el, cursor=get_current_cursor()) {
 /**
 @template {keyof HTMLElementTagNameMap} T
 @arg {T} tagname
-@arg {string|null} id
 @arg {Cursor} cursor
 @returns {HTMLElementTagNameMap[T]}
 */
-export function container(tagname, id=null, cursor=get_current_cursor()) {
+export function container(tagname, cursor=get_current_cursor()) {
     if (cursor.node == null) {
         /** @type {HTMLElementTagNameMap[T]} */
-        let el = id == null ? document.createElement(tagname) : get_element(tagname, id);
+        let el = create_element(tagname);
         cursor.parent.append(el);
         return step_into(el, cursor);
 
     } else {
 
-        if (id) {
-            let el = get_element(tagname, id);
-            if (cursor.node != el) cursor.node.replaceWith(el);
-            return step_into(el, cursor);
-        }
-
         if (is_element(cursor.node)) {
             if (tagname != cursor.node.localName) {
-                let el = document.createElement(tagname);
+                let el = create_element(tagname);
                 cursor.node.replaceWith(el);
                 return step_into(el, cursor);
             }
@@ -830,7 +639,7 @@ export function container(tagname, id=null, cursor=get_current_cursor()) {
             return /** @type {HTMLElementTagNameMap[T]} */(step_into(cursor.node, cursor));
 
         } else /* It is a text node */ {
-            let el = document.createElement(tagname);
+            let el = create_element(tagname);
             cursor.node.replaceWith(el);
             return step_into(el, cursor);
         }
@@ -886,12 +695,11 @@ export function step_out(cursor=get_current_cursor()) {
 /**
 @template {keyof HTMLElementTagNameMap} T
 @arg {T} tagname
-@arg {string|null} id
 @arg {Cursor} cursor
 @returns {HTMLElementTagNameMap[T]}
 */
-export function element(tagname, id=null, cursor=get_current_cursor()) {
-    let el = container(tagname, id, cursor);
+export function element(tagname, cursor=get_current_cursor()) {
+    let el = container(tagname, cursor);
     step_out(cursor);
     return el;
 }
