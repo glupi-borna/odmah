@@ -41,7 +41,7 @@ export function create_router(options) {
         });
     }
 
-    /** @type {(url: string) => string} */
+    /** @type {(url: string) => [url: string, hash: string]} */
     let normalize_url;
     if (options.hash ?? true) {
         normalize_url = function normalize_url(url) {
@@ -49,22 +49,28 @@ export function create_router(options) {
             if (url.startsWith("#/")) url = url.slice(1);
 
             let hash_idx = url.indexOf("#");
-            // If there is a hash component to the url, we throw it away
-            if (hash_idx != -1) url = url.slice(0, hash_idx);
+            let hash = "";
+            if (hash_idx != -1) {
+                hash = url.slice(hash_idx+1);
+                url = url.slice(0, hash_idx);
+            }
             if (url == "") url = "/";
 
-            return url;
+            return [url, hash];
         }
     } else {
         normalize_url = function normalize_url(url) {
             if (url.startsWith(router.base)) url = url.slice(router.base.length);
 
             let hash_idx = url.indexOf("#");
-            // If there is a hash component to the url, we throw it away
-            if (hash_idx != -1) url = url.slice(0, hash_idx);
+            let hash = "";
+            if (hash_idx != -1) {
+                hash = url.slice(hash_idx+1);
+                url = url.slice(0, hash_idx);
+            }
             if (url == "") url = "/";
 
-            return url;
+            return [url, hash];
         }
     }
 
@@ -80,7 +86,7 @@ export function create_router(options) {
                 callback: close
             };
         }
-        url = normalize_url(url);
+        url = normalize_url(url)[0];
         if (!url.startsWith("/")) return false; // Can't match a relative route?
         return route_matches_(route, parse_parts(url));
     }
@@ -102,10 +108,8 @@ export function create_router(options) {
         return true;
     };
 
-    /** @arg {string} url */
-    function get_matching_route(url) {
-        let url_parts = parse_parts(normalize_url(url));
-
+    /** @arg {string[]} url_parts */
+    function get_matching_route(url_parts) {
         for (let route of router.routes) {
             if (route_matches_(route, url_parts)) return route;
         }
@@ -165,12 +169,10 @@ export function create_router(options) {
 
     /**
     @arg {Route} route
-    @arg {string} url
+    @arg {string[]} url_parts
     */
-    function update_route_params(route, url) {
+    function update_route_params(route, url_parts) {
         router.params = {};
-        url = normalize_url(url);
-        let url_parts = parse_parts(url);
 
         for (let i=0; i<route.url_parts.length; i++) {
             let route_part = /** @type {string} */(route.url_parts[i]);
@@ -182,21 +184,26 @@ export function create_router(options) {
     }
 
     function current_route() {
-        if (initial) {
+        let changed = false;
+        let hash = "";
+
+        if (hook("popstate", window) || hook("routing", window) || initial) {
             initial = false;
             let url = window.location.toString();
-            curr_route = get_matching_route(url);
-            if (curr_route) update_route_params(curr_route, url);
-        }
-
-        if (hook("popstate", undefined, window) || hook("routing", undefined, window)) {
-            let url = window.location.toString();
-            curr_route = get_matching_route(url);
-            if (curr_route) update_route_params(curr_route, url);
+            [url, hash] = normalize_url(url);
+            let parts = parse_parts(url);
+            curr_route = get_matching_route(parts);
+            if (curr_route) update_route_params(curr_route, parts);
+            changed = true;
         }
 
         if (curr_route == null) return;
         curr_route.callback();
+
+        if (changed && hash.length) {
+            let target = document.getElementById(hash);
+            if (target) target.scrollIntoView();
+        }
     }
 
     let router = {

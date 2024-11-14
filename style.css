@@ -6,11 +6,16 @@
 html {
     --bg: #343f44;
     --darkbg: #232a2e;
+    --yellow: #ffbb44;
+    --green: #33ff33;
     --fg: #d3c6aa;
     --lightfg: #e9f0e9;
     --darkblue: #6272a4;
     --lightblue: #99aaff;
-    color: red;
+}
+
+input, select, button {
+    font-family: inherit;
 }
 
 body {
@@ -53,7 +58,7 @@ hr {
 }
 
 a {
-    color: var(--darkblue);
+    color: var(--lightblue);
     &:visited { color: var(--lightblue) }
 }
 
@@ -107,6 +112,20 @@ button {
     transition: background .1s, color .1s;
     cursor: pointer;
 
+    figcaption & {
+        background: var(--bg);
+        color: var(--fg);
+        border-radius: 100%;
+        width: 2em;
+        height: 2em;
+
+        &:hover { background: var(--darkblue); }
+        &:disabled {
+            background: transparent;
+            color: transparent;
+        }
+    }
+
     &:hover { background: var(--lightfg); }
 
     &:disabled {
@@ -135,9 +154,21 @@ figcaption {
     &:last-child { align-self: end; padding-right: 1em }
 }
 
-h1, h2, h3, h4, h5, h6 { padding-bottom: .5em }
+h1, h2, h3, h4, h5, h6 {
+    padding-bottom: .5em;
 
-p { padding-bottom: 1em }
+    em {
+        display: inline-block;
+        background: var(--lightblue);
+        color: var(--bg);
+        padding: .125em .25em;
+        /* border-radius: 2px; */
+        font-size: 65%;
+        translate: 0 -.125em
+    }
+}
+
+p:not(:last-child) { padding-bottom: 1em }
 
 .w-half {
     max-width: 40ch;
@@ -153,13 +184,19 @@ p { padding-bottom: 1em }
     border-bottom: 1px solid currentColor;
 }
 
-.code-example {
+.code-example, .code-viz, .doc-example {
     display: flex;
     flex-flow: row wrap;
     background: currentColor;
     gap: 1px;
 
-    & > pre, & > div {
+    & > pre {
+        flex: 1 0 auto;
+        min-width: calc(50% - 2px);
+        max-width: 100%;
+    }
+
+    &.code-example > pre, &.code-example > div {
         display: flex;
         flex-flow: row nowrap;
         justify-content: center;
@@ -171,12 +208,65 @@ p { padding-bottom: 1em }
         align-items: center;
     }
 
+    &.doc-example > div {
+        display: flex;
+        flex-flow: column nowrap;
+    }
+
     & > pre { white-space: break-spaces }
 
     & > div {
         flex: 1 0 min-content;
         background: var(--bg);
         padding: 1em;
+    }
+
+    pre span.current-step:not(:empty) {
+        background: var(--lightblue);
+        color: var(--darkbg);
+        border-radius: 2px;
+        font-weight: bold;
+        padding: 2px;
+    }
+}
+
+article.doc {
+    ul {
+        counter-reset: list;
+        list-style-type: none;
+        padding-left: 1em;
+        padding-bottom: 1em;
+        margin-top: -.25em;
+
+        li { font-family: mono, monospace }
+
+        &.toc li {
+            margin-bottom: .25em;
+            font-family: inherit;
+
+            a {
+                display: block;
+                background: var(--darkbg);
+                padding: .25em .5em;
+                width: fit-content;
+            }
+        }
+
+        em, mark {
+            display: inline-block;
+            background: var(--lightblue);
+            color: var(--bg);
+            padding: .125em .25em;
+            /* border-radius: 2px; */
+            font-size: 70%;
+            font-weight: bold;
+            translate: 0 -.125em
+        }
+
+        mark {
+            background: var(--fg);
+            color: var(--bg);
+        }
     }
 }
 

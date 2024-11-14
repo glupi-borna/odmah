@@ -24,8 +24,6 @@ function remove_after(node) {
         node.nextSibling.remove();
 }
 
-/** @typedef {ReturnType<typeof cursor_new>} Cursor */
-
 /** @type {Cursor|null} */
 let current_cursor = null;
 
@@ -81,6 +79,73 @@ export class Dispatcher {
     }
 }
 
+/** @typedef {ReturnType<typeof cursor_new>} Cursor */
+
+/**
+@arg {() => void} frame_cb
+@arg {Element} root
+*/
+export function cursor_inert(frame_cb, root=document.body) {
+    let cursor = {
+        /** @type {Element} */
+        parent: root,
+        /** @type {Element} */
+        root: root,
+        // When cursor.node is null, cursor is at the end
+        // of the parent element's child list.
+        /** @type {ChildNode|null} */
+        node: null,
+        /** @type {Element} */
+        last_element: root,
+
+        before_finalize: new Dispatcher(undefined),
+        after_finalize: new Dispatcher(undefined),
+
+        /**
+            needs_update is an optimisation. Most frames, nothing has changed since the
+            last frame, so we can skip a lot of work if we know that nothing has changed.
+            This is essentially a "dirty" flag. We only perform the frame callback in
+            `odmah` if it is set to `true`.
+            We set needs_update to true whenever an event listener (set up by `hook`) is
+            triggered.
+        */
+        needs_update: true,
+        marked_for_remove: /** @type {Element[]} */([]),
+
+        current_frame: 0,
+        render_loop,
+
+        scoped_css: "",
+        stylesheet: document.createElement("style"),
+        css_scope_idx: 0,
+    };
+
+    function render_loop() {
+        cursor_reset(cursor);
+        current_cursor = cursor;
+        frame_cb();
+        current_cursor = null;
+
+        if (cursor.node == null) {
+            cursor.node = cursor.parent.lastChild;
+        } else {
+            cursor.node = cursor.node.previousSibling;
+        }
+
+        cursor.before_finalize.dispatch(undefined);
+        cursor_finalize(cursor);
+
+        for (let i=0; i<cursor.marked_for_remove.length; i++) {
+            (/** @type {Element} */(cursor.marked_for_remove[i])).remove();
+        }
+        cursor.marked_for_remove.length = 0;
+
+        cursor.after_finalize.dispatch(undefined);
+    }
+
+    return cursor;
+}
+
 /**
 @arg {() => void} frame_cb
 @arg {Element} root
@@ -120,9 +185,11 @@ export function cursor_new(frame_cb, root=document.body) {
         css_scope_idx: 0,
     };
 
+    let af = -1;
     setInterval(() => {
         if (cursor.needs_update) {
-            requestAnimationFrame(render_loop);
+            cancelAnimationFrame(af);
+            af = requestAnimationFrame(render_loop);
         }
     }, 1);
 
@@ -520,25 +587,28 @@ export function hook_data(
 // I'm gonna do what's called a "pro gamer move"
 /**
 @overload
-@arg {All_Event_Types} event
+@arg {All_Event_Types|(string & {})} event
 @returns {true|undefined}
 */
+
 /**
-@template {All_Event_Types} EVENT
+@template {Event_Types<TARGET>|(string & {})} EVENT
+@template {EventTarget} TARGET
+@overload
+@arg {EVENT} event
+@arg {TARGET} target
+@returns {true|undefined}
+*/
+
+/**
+@template {All_Event_Types|(string & {})} EVENT
 @template {any} RETURN
 @overload
 @arg {EVENT} event
 @arg {Odmah_Value_Getter<Guess_Event_Value<EVENT>, RETURN>} value_getter
 @returns {RETURN|undefined}
 */
-/**
-@template {Event_Types<TARGET>} EVENT
-@template {EventTarget} TARGET
-@overload
-@arg {EVENT} event
-@arg {TARGET} target
-@returns {RETURN|undefined}
-*/
+
 /**
 @template {Event_Types<TARGET>} EVENT
 @template {EventTarget} TARGET
@@ -547,32 +617,49 @@ export function hook_data(
 @arg {EVENT} event
 @arg {Odmah_Value_Getter<Guess_Event_Value<EVENT>, RETURN>} value_getter
 @arg {TARGET} target
+@arg {Cursor} [cursor]
 @returns {RETURN|undefined}
 */
+
 /**
 @template {Event_Types<TARGET>} EVENT
-@template [RETURN=boolean]
-@template {EventTarget} [TARGET=HTMLElement]
+@template {EventTarget} TARGET
+@template {any} RETURN
+@overload
 @arg {EVENT} event
-@arg {Odmah_Value_Getter<Event_Value<TARGET, EVENT>, RETURN>} [value_getter]
-@arg {TARGET} [target]
+@arg {TARGET} target
+@arg {Odmah_Value_Getter<Guess_Event_Value<EVENT>, RETURN>} value_getter
+@arg {Cursor} [cursor]
+@returns {RETURN|undefined}
+*/
+
+/**
+@template {any} RETURN
+@template {Odmah_Value_Getter<Event, RETURN> | EventTarget} FIRST
+@arg {string} event
+@arg {FIRST} [arg1]
+@arg {FIRST extends Odmah_Value_Getter<Event, RETURN> ? EventTarget : Odmah_Value_Getter<Event, RETURN>} [arg2]
 @arg {Cursor} [cursor]
 @returns {RETURN|undefined}
 */
 export function hook(
     event,
     // @ts-expect-error
-    // The default value getter just returns true, so if somebody were
-    // to call hook<string>("click"), typescript would indicate that the
-    // returned value is a string, when in reality it will be a boolean.
-    // I don't care about this and want to provide a nice default.
-    value_getter=default_value_getter,
-    target, cursor=get_current_cursor(),
+    arg1=default_value_getter,
+    arg2,
+    cursor=get_current_cursor(),
 ) {
-    if (typeof(value_getter) == "object") {
-        target = value_getter;
-        // @ts-ignore
-        value_getter = default_value_getter;
+    /** @type {Odmah_Value_Getter<any, any>} */
+    let value_getter;
+    /** @type {EventTarget} */
+    let target;
+
+    if (typeof(arg1) == "function") {
+        value_getter = arg1;
+        target = /** @type {EventTarget} */(arg2) ?? cursor.last_element;
+    } else {
+        target = arg1 ?? cursor.last_element;
+        value_getter = /** @type {Odmah_Value_Getter<any, any>} */(arg2 ?? default_value_getter);
     }
 
     let data = hook_data(event, value_getter, target, cursor);

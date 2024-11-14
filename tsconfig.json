@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "target": "es2019",
-    "lib": ["es2019", "DOM", "DOM.iterable"],
+    "target": "es2022",
+    "lib": ["es2022", "DOM", "DOM.iterable"],
     "module": "es2022",
     "allowJs": true,
     "checkJs": true,
@@ -20,7 +20,7 @@
     "noUnusedParameters": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
+    "noFallthroughCasesInSwitch": false,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,

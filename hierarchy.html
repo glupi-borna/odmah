@@ -1,0 +1,63 @@
+<script type="module">
+import * as o from "./odmah.js";
+import { input_string } from "./modules/components.js";
+
+const hierarchy = {name: 'root', children: [], child_name: ''};
+
+function add_to_hier(parent_hier, hier_name) {
+    parent_hier.children.push({name: hier_name, children: [], child_name: ''});
+}
+
+function remove_from_hier(parent_hier, child) {
+    let idx = parent_hier.children.indexOf(child);
+    if (idx == -1) return;
+    parent_hier.children.splice(idx, 1);
+}
+
+function hier_child_creator(hierarchy) {
+    hierarchy.child_name = input_string(hierarchy.child_name);
+    if (o.hook("keydown", e=>e.key=='Enter')) {
+        add_to_hier(hierarchy, hierarchy.child_name);
+        hierarchy.child_name = '';
+        o.request_rerender();
+    }
+}
+
+function hier(hierarchy, level=0) {
+    if (level != 0) {
+        o.container("details"); o.cls("p-4");
+            o.container("summary");
+                o.text(hierarchy.name);
+                hier_child_creator(hierarchy);
+            o.step_out();
+
+            for (let child of hierarchy.children) {
+                hier(child, level+1);
+            }
+
+            if (hierarchy.children.length > 0) {
+                hier_child_creator(hierarchy);
+            }
+        o.step_out();
+
+    } else {
+        hier_child_creator(hierarchy);
+
+        for (let child of hierarchy.children) {
+            hier(child, level+1);
+        }
+
+        if (hierarchy.children.length > 0) {
+            hier_child_creator(hierarchy);
+        }
+    }
+}
+
+o.odmah(() => {
+    o.css(`
+        details>details { padding-left: 1em }
+    `);
+    hier(hierarchy);
+});
+
+</script>

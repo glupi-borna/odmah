@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const zlib = require("node:zlib");
 const { join, extname } = require("node:path");
 const http = require("node:http");
 const { execSync } = require("node:child_process");
@@ -202,8 +203,12 @@ const server = http.createServer((req, res) => {
         console.log(404, req.method, req.url);
     } else {
         if (file[1] == "text/html") file[0] += live_reload_script();
-        res.writeHead(200, {"Content-Type": file[1]}).end(file[0])
-        console.log(200, req.method, req.url);
+        res.writeHead(200, {
+            "Content-Type": file[1],
+            "Content-Encoding": "gzip"
+        });
+        let result = zlib.gzipSync(file[0]);
+        res.end(result);
     }
 
     res.end();

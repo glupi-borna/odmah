@@ -71,7 +71,9 @@ function create_todo_form() {
             add_todo(new_todo_title);
             new_todo_title = "";
             request_rerender();
-        } cls("row");
+        }
+            if (new_todo_title.length == 0) attr("disabled");
+            cls("row");
             $text.span("+"); style("font-size: 2em; transform: translateY(-1px); line-height: .75");
             $text.span("Create TODO");
 
