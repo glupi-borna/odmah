@@ -463,8 +463,9 @@ function render_finalize(cursor=get_current_cursor()) {
 /** @arg {Cursor} cursor */
 function cursor_finalize(cursor=get_current_cursor()) {
     let stylesheet = cursor.stylesheet;
-    if (!stylesheet.isConnected) document.head.append(stylesheet);
     if (cursor.scoped_css != stylesheet.innerHTML) stylesheet.innerHTML = cursor.scoped_css;
+    if (cursor.scoped_css.length && !stylesheet.isConnected)
+        document.head.append(stylesheet);
     cursor.scoped_css = "";
     cursor.css_scope_idx = 0;
 
