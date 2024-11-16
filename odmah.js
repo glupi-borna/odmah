@@ -120,6 +120,8 @@ export function cursor_inert(frame_cb, root=document.body) {
         css_scope_idx: 0,
     };
 
+    root._attrs = new Attrs();
+
     function render_loop() {
         cursor_reset(cursor);
         current_cursor = cursor;
@@ -151,70 +153,15 @@ export function cursor_inert(frame_cb, root=document.body) {
 @arg {Element} root
 */
 export function cursor_new(frame_cb, root=document.body) {
-    let cursor = {
-        /** @type {Element} */
-        parent: root,
-        /** @type {Element} */
-        root: root,
-        // When cursor.node is null, cursor is at the end
-        // of the parent element's child list.
-        /** @type {ChildNode|null} */
-        node: null,
-        /** @type {Element} */
-        last_element: root,
-
-        before_finalize: new Dispatcher(undefined),
-        after_finalize: new Dispatcher(undefined),
-
-        /**
-            needs_update is an optimisation. Most frames, nothing has changed since the
-            last frame, so we can skip a lot of work if we know that nothing has changed.
-            This is essentially a "dirty" flag. We only perform the frame callback in
-            `odmah` if it is set to `true`.
-            We set needs_update to true whenever an event listener (set up by `hook`) is
-            triggered.
-        */
-        needs_update: true,
-        marked_for_remove: /** @type {Element[]} */([]),
-
-        current_frame: 0,
-        render_loop,
-
-        scoped_css: "",
-        stylesheet: document.createElement("style"),
-        css_scope_idx: 0,
-    };
+    let cursor = cursor_inert(frame_cb, root);
 
     let af = -1;
     setInterval(() => {
         if (cursor.needs_update) {
             cancelAnimationFrame(af);
-            af = requestAnimationFrame(render_loop);
+            af = requestAnimationFrame(cursor.render_loop);
         }
     }, 1);
-
-    function render_loop() {
-        cursor_reset(cursor);
-        current_cursor = cursor;
-        frame_cb();
-        current_cursor = null;
-
-        if (cursor.node == null) {
-            cursor.node = cursor.parent.lastChild;
-        } else {
-            cursor.node = cursor.node.previousSibling;
-        }
-
-        cursor.before_finalize.dispatch(undefined);
-        cursor_finalize(cursor);
-
-        for (let i=0; i<cursor.marked_for_remove.length; i++) {
-            (/** @type {Element} */(cursor.marked_for_remove[i])).remove();
-        }
-        cursor.marked_for_remove.length = 0;
-
-        cursor.after_finalize.dispatch(undefined);
-    }
 
     return cursor;
 }
@@ -426,8 +373,8 @@ export function get_element_state(el=get_current_cursor().last_element) {
 /** @arg {Element} element */
 function finalize(element) {
     let attrs = element._attrs;
-    let prev_attrs = element._prev_attrs;
     if (!attrs) return;
+    let prev_attrs = element._prev_attrs;
     if (!prev_attrs) prev_attrs = new Attrs();
 
     let prev_keys = prev_attrs.keys;
@@ -455,7 +402,6 @@ function finalize(element) {
 
 function render_finalize(cursor=get_current_cursor()) {
     let iter = document.createNodeIterator(cursor.root, NodeFilter.SHOW_ELEMENT);
-    finalize(cursor.root);
     let n;
     while (n=iter.nextNode()) finalize(/** @type {Element} */(n));
 }
